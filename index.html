@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>海選 — 你不是在評審，你是在被評審</title>
+<style>
+:root{
+  --ink:#14111c; --ink2:#1d1826; --line:#372f45;
+  --amber:#e8a33d; --amber-dim:#8a6425;
+  --cyan:#5fd4c4; --paper:#efe9dd; --dim:#9a90a8; --red:#c0453a;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --sans:"PingFang TC","Noto Sans TC","Hiragino Sans",system-ui,sans-serif;
+  --serif:"Songti TC","Noto Serif TC",Georgia,serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;line-height:1.65}
+.wrap{max-width:720px;margin:0 auto;padding:24px 20px 80px}
+h1{font-family:var(--serif);font-size:clamp(34px,9vw,58px);line-height:1.06;margin:0 0 14px;
+  letter-spacing:.02em;font-weight:700}
+h2{font-family:var(--serif);font-size:24px;margin:0 0 6px;font-weight:700}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--amber);
+  text-transform:uppercase;margin:0 0 14px}
+p{margin:0 0 14px}
+.muted{color:var(--dim)}
+.small{font-size:13px}
+button{font:inherit;cursor:pointer;border-radius:2px;transition:.15s}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.btn{background:transparent;border:1px solid var(--line);color:var(--paper);
+  padding:13px 18px;width:100%;text-align:left;margin-bottom:9px;display:block}
+.btn:hover{border-color:var(--amber);background:#1b1626}
+.btn.primary{background:var(--amber);border-color:var(--amber);color:#1a1206;font-weight:700;
+  text-align:center}
+.btn.primary:hover{background:#f2b95c}
+.btn.danger{border-color:var(--red);color:#e8917f}
+.btn:disabled{opacity:.32;cursor:default}
+.card{border:1px solid var(--line);background:var(--ink2);padding:18px;margin-bottom:16px}
+.rowline{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+  border-bottom:1px solid #272033;font-size:14px}
+.rowline:last-child{border-bottom:0}
+.mono{font-family:var(--mono)}
+
+/* 招牌：轉椅 */
+.stage{position:relative;height:190px;display:grid;place-items:center;margin:8px 0 20px}
+.chair{width:150px;height:150px;border-radius:50% 50% 8px 8px;border:2px solid var(--line);
+  background:radial-gradient(circle at 50% 35%,#241d31,#161122);
+  display:grid;place-items:center;transition:transform 1s cubic-bezier(.2,.8,.2,1);
+  transform:rotateY(0deg);transform-style:preserve-3d}
+.chair.turned{transform:rotateY(180deg);border-color:var(--amber);
+  box-shadow:0 0 0 1px var(--amber-dim),0 12px 60px -18px var(--amber)}
+.chair span{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--dim)}
+.chair.turned span{transform:rotateY(180deg);color:var(--amber)}
+.timer{position:absolute;top:0;right:0;font-family:var(--mono);font-size:34px;color:var(--amber)}
+.timer small{display:block;font-size:10px;letter-spacing:.2em;color:var(--dim);text-align:right}
+.bar{height:2px;background:#241e30;margin:14px 0 4px;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--amber);width:0}
+
+.coach{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.chip{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:5px 9px;
+  color:var(--dim)}
+.chip.on{border-color:var(--amber);color:var(--amber)}
+.chip.me{border-color:var(--cyan);color:var(--cyan)}
+.result{font-family:var(--mono);font-size:12px;letter-spacing:.1em;margin-top:10px}
+.ok{color:var(--cyan)} .bad{color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{text-align:left;padding:7px 4px;border-bottom:1px solid #272033}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--dim);font-weight:400}
+.num{font-family:var(--mono);text-align:right}
+.slider{width:100%;accent-color:var(--amber);margin:6px 0}
+audio{width:100%;margin:10px 0}
+.hide{display:none}
+.report-num{font-family:var(--mono);font-size:15px}
+.pos{color:var(--cyan)} .neg{color:var(--red)}
+@media (prefers-reduced-motion:reduce){.chair{transition:none}}
+
+/* 同步歌詞 */
+.lyric{min-height:56px;text-align:center;margin:12px 0 4px;font-family:var(--serif)}
+.lyric .now{font-size:19px;line-height:1.5;color:var(--paper);transition:opacity .25s}
+.lyric .next{font-size:13px;color:var(--dim);margin-top:5px;opacity:.75}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script src="config.js"></script>
+<script src="lyrics.js"></script>
+<script>
+const PUB = [{"id":"A01","order":1,"song":"03_定影","intro":"彰化人。我媽今天有來，坐三個小時的車。","lines":["你是想紅吧？誰不想。","我不知道你是誰。但你第二段那句，我聽到了。","你說你彰化人——我在那邊唸的書。","你其實想跟原本的樂團和好對不對？"],"night":"06_還沒冷"},{"id":"A02","order":2,"song":"02_伴唱","intro":"想被聽見一次就好。我沒有老師，都自己看影片。","lines":["你是不是新竹人？","我不知道你是誰。但你第二段那句，我聽到了。","你是不是桃園人？那個尾音藏不住。","你說想被聽見一次就好。跟我，我手上有一批沒發的歌。"],"night":"06_還沒冷"},{"id":"A03","order":3,"song":"02_伴唱","intro":"想有人記得我的名字。我知道我年紀比較大了。","lines":["你是不是高雄人？","你是不是屏東人？那個尾音藏不住。","你說想有人記得我的名字。跟我，我手上有一批沒發的歌。","我不知道你是誰。但你第二段那句，我聽到了。"],"night":"06_還沒冷"},{"id":"A04","order":4,"song":"01_風向","intro":"想當創作歌手。唱完就好，其他我沒有想。","lines":["你說想當創作歌手。跟我，我手上有一批沒發的歌。","你是不是基隆人？那個尾音藏不住。","我不知道你是誰。但你第二段那句，我聽到了。","你是不是宜蘭人？"],"night":"02_伴唱"},{"id":"A05","order":5,"song":"03_定影","intro":"教鋼琴。我媽今天有來，坐三個小時的車。","lines":["你是想紅吧？誰不想。","你其實想不再需要打工對不對？","我不知道你是誰。但你第二段那句，我聽到了。","教鋼琴還能練成這樣，你比我認識的很多人認真。"],"night":"06_還沒冷"},{"id":"A06","order":6,"song":"01_風向","intro":"大學剛畢業。我沒有老師，都自己看影片。","lines":["大學剛畢業還能練成這樣，你比我認識的很多人認真。","我不知道你是誰。但你第二段那句，我聽到了。","你是不是嘉義人？","你是不是雲林人？那個尾音藏不住。"],"night":"06_還沒冷"},{"id":"A07","order":7,"song":"03_定影","intro":"跑外送，想賺錢養家。我不想一直唱別人的歌。","lines":["我不知道你是誰。但你第二段那句，我聽到了。","你是不是台南人？","你是不是嘉義人？那個尾音藏不住。","跑外送還能練成這樣，你比我認識的很多人認真。"],"night":"02_伴唱"},{"id":"A08","order":8,"song":"01_風向","intro":"顧早餐店，澎湖人。唱完就好，其他我沒有想。","lines":["你是想紅吧？誰不想。","我不知道你是誰。但你第二段那句，我聽到了。","你其實想出一張自己的專輯對不對？","顧早餐店還能練成這樣，你比我認識的很多人認真。"],"night":"06_還沒冷"},{"id":"A09","order":9,"song":"07_自轉","intro":"想讓爸爸來看一次，在工地綁鋼筋。家裡那邊沒有人在做這個。","lines":["你是不是苗栗人？","你說想讓爸爸來看一次。跟我，我手上有一批沒發的歌。","我不知道你是誰。但你第二段那句，我聽到了。","你是不是新竹人？那個尾音藏不住。"],"night":"02_伴唱"},{"id":"A10","order":10,"song":"01_風向","intro":"在葬儀社唱歌，想證明自己不是浪費時間。我沒有老師，都自己看影片。","lines":["我不知道你是誰。但你第二段那句，我聽到了。","你是不是馬祖人？那個尾音藏不住。","你是不是金門人？","在葬儀社唱歌還能練成這樣，你比我認識的很多人認真。"],"night":"02_伴唱"},{"id":"A11","order":11,"song":"06_暗頓","intro":"想留在台北，台東人。我知道我年紀比較大了。","lines":["你是不是還在唸書？","你是不是當保全？聲音有那種累。","你說想留在台北。跟我，我手上有一批沒發的歌。","我不知道你是誰。但你第二段那句，我聽到了。"],"night":"02_伴唱"},{"id":"A12","order":12,"song":"06_暗頓","intro":"在婚禮當歌手。我原本不打算來的。","lines":["你是不是台東人？","你是不是花蓮人？那個尾音藏不住。","我不知道你是誰。但你第二段那句，我聽到了。","在婚禮當歌手還能練成這樣，你比我認識的很多人認真。"],"night":"02_伴唱"},{"id":"A13","order":13,"song":"01_留燈","night":"05_今天天氣很好","intro":"我在錄音室當和聲，唱過的歌你們大概都聽過，只是沒聽過我。","lines":["你不想再唱別人的了對不對。","我不知道你唱過什麼。今天這首我記得了。","台北長大的吧，聽得出來。","和聲出身的人音準都很準，你也是。"]},{"id":"A14","order":14,"song":"03_失速","night":"02_副駕駛","intro":"台南人。我現在在補習班教英文，家裡覺得那樣就很好了。","lines":["你說家裡覺得那樣就很好了——你剛剛唱的不是那個意思。","你想辭掉工作對不對。","你是不是沒受過訓練？有點亂。","台南喔，我常去。"]},{"id":"A15","order":15,"song":"02_副駕駛","night":"04_壞習慣","intro":"我想唱給一個人聽。她今天沒有來。","lines":["你不是台北人。中部？苗栗一帶。","她沒有來——但你還是唱完了。","你是想靠這個出道吧。","第二段的氣音，我聽到了。"]},{"id":"A16","order":16,"song":"04_壞習慣","night":"03_失速","intro":"高雄人。我現在在夜市擺攤。我沒有老師，都自己看影片。","lines":["你說沒有老師——那個煙嗓的收法不是自學能收成那樣的。","你原本有團吧。你想再來一次。","你是不是在氣什麼人？聽起來很兇。","高雄的，我懂那個空氣。"]}];
+const FMAP = {"A01_blind":"5cec1abe08","A01_pk_04":"dd05f2cebb","A01_pk_01":"f7bb056b02","A01_pk_03":"acf591c855","A01_night":"4f3ce229a1","A01_final":"5caea04661","A02_blind":"0b019d2b67","A02_pk_04":"c03eb200f5","A02_pk_01":"3fc64e616e","A02_pk_03":"4dcc278c8b","A02_night":"b4e3323dbe","A02_final":"f34c7888cf","A03_blind":"d3129682ef","A03_pk_04":"d2cae1e857","A03_pk_01":"939b18b674","A03_pk_03":"abe7789569","A03_night":"6b2930bc6d","A03_final":"3e2f1d15b6","A04_blind":"e03cd145b7","A04_pk_04":"15094dd7b7","A04_pk_01":"418d2ebe43","A04_pk_03":"d6f07f6567","A04_night":"a10188fad5","A04_final":"7fd5bd8b72","A05_blind":"709a9013e2","A05_pk_04":"8306769fd5","A05_pk_01":"d6a7548ca4","A05_pk_03":"7dd9598a64","A05_night":"78b77444c6","A05_final":"b289f2b145","A06_blind":"2e610eec4b","A06_pk_04":"7385fd3d39","A06_pk_01":"c7a6923174","A06_pk_03":"f4e09d0898","A06_night":"1d7831df18","A06_final":"cd8f39e72d","A07_blind":"b704eb7a5d","A07_pk_04":"a6b2f74f6a","A07_pk_01":"b42ca98942","A07_pk_03":"fb900f0d88","A07_night":"a62f7bb42d","A07_final":"4ef23fe1d0","A08_blind":"4b72340a14","A08_pk_04":"c46403ba87","A08_pk_01":"b83681124a","A08_pk_03":"0c20d2167b","A08_night":"e22b16eefe","A08_final":"50a3eef969","A09_blind":"383335ef12","A09_pk_04":"44ef54b84d","A09_pk_01":"f51652f3ee","A09_pk_03":"743571ca82","A09_night":"8138b1fdd7","A09_final":"51ce31afe9","A10_blind":"89ecb8444c","A10_pk_04":"663d23a8ea","A10_pk_01":"77c5a42876","A10_pk_03":"ff59ef2d67","A10_night":"95d2fc8bb2","A10_final":"55831022df","A11_blind":"5042ed40e7","A11_pk_04":"550c2acb3b","A11_pk_01":"ff7edbaa03","A11_pk_03":"84e5835de1","A11_night":"2e011737c6","A11_final":"f7121c4b3b","A12_blind":"db5b26ce69","A12_pk_04":"5d20b52a06","A12_pk_01":"09f36ed29d","A12_pk_03":"cffe71fd6c","A12_night":"3270ce30de","A12_final":"9f6ede362d","A13_blind":"0c294d622a","A13_pk_04":"3ec678330a","A13_pk_01":"dc538fbaed","A13_pk_03":"9129e8ec14","A13_night":"8065f3d460","A13_final":"0e256275b7","A14_blind":"5a5013cafc","A14_pk_04":"eafadf69df","A14_pk_01":"53127bb677","A14_pk_03":"6408c0d1fe","A14_night":"cf0cf54f71","A14_final":"40bab52a63","A15_blind":"21d2a6e50c","A15_pk_04":"ba76b5d1e5","A15_pk_01":"bc6c39f813","A15_pk_03":"a1cf207b89","A15_night":"fed2f3fc18","A15_final":"c712bb1824","A16_blind":"d535f53cca","A16_pk_04":"b12444a773","A16_pk_01":"abeffbe515","A16_pk_03":"812b3659ca","A16_night":"3ae91f0bac","A16_final":"b89de4afca"};
+const SONGNAME = {"01_風向":"風向","02_伴唱":"伴唱","03_定影":"定影","04_繞路":"繞路","05_會客時間":"會客時間","06_還沒冷":"還沒冷","07_自轉":"自轉","01_留燈":"留燈","02_副駕駛":"副駕駛","03_失速":"失速","04_壞習慣":"壞習慣","05_今天天氣很好":"今天天氣很好"};
+const NICK = {"A01":"彰化囝仔","A02":"自學少年","A03":"大齡新人","A04":"創作掛","A05":"鋼琴老師","A06":"應屆仔","A07":"外送大哥","A08":"澎湖早餐店","A09":"鋼筋師傅","A10":"葬儀社之聲","A11":"台東囝仔","A12":"婚禮歌手","A13":"和聲女孩","A14":"補習班老師","A15":"家具廠男孩","A16":"夜市老闆"};
+const RNAME = {"A01":"陳威宇","A02":"林子鴻","A03":"吳金龍","A04":"張哲瑄","A05":"許家瑜","A06":"蔡明軒","A07":"郭志明","A08":"洪國峰","A09":"楊佳穎","A10":"劉珮如","A11":"潘怡萱","A12":"李婉婷","A13":"林可柔","A14":"曾若萱","A15":"邱世偉","A16":"蘇孟哲"};
+const HAVE = new Set(["09f36ed29d", "0b019d2b67", "0c20d2167b", "0c294d622a", "0e256275b7", "15094dd7b7", "1d7831df18", "21d2a6e50c", "2e011737c6", "2e610eec4b", "3270ce30de", "383335ef12", "3ae91f0bac", "3e2f1d15b6", "3ec678330a", "3fc64e616e", "40bab52a63", "418d2ebe43", "44ef54b84d", "4b72340a14", "4dcc278c8b", "4ef23fe1d0", "4f3ce229a1", "5042ed40e7", "50a3eef969", "51ce31afe9", "53127bb677", "550c2acb3b", "55831022df", "5a5013cafc", "5caea04661", "5cec1abe08", "5d20b52a06", "6408c0d1fe", "663d23a8ea", "6b2930bc6d", "709a9013e2", "7385fd3d39", "743571ca82", "77c5a42876", "78b77444c6", "7dd9598a64", "7fd5bd8b72", "8065f3d460", "812b3659ca", "8138b1fdd7", "8306769fd5", "84e5835de1", "89ecb8444c", "9129e8ec14", "939b18b674", "95d2fc8bb2", "9f6ede362d", "a10188fad5", "a1cf207b89", "a62f7bb42d", "a6b2f74f6a", "abe7789569", "abeffbe515", "acf591c855", "b12444a773", "b289f2b145", "b42ca98942", "b4e3323dbe", "b704eb7a5d", "b83681124a", "b89de4afca", "ba76b5d1e5", "bc6c39f813", "c03eb200f5", "c46403ba87", "c712bb1824", "c7a6923174", "cd8f39e72d", "cf0cf54f71", "cffe71fd6c", "d2cae1e857", "d3129682ef", "d535f53cca", "d6a7548ca4", "d6f07f6567", "db5b26ce69", "dc538fbaed", "dd05f2cebb", "e03cd145b7", "e22b16eefe", "eafadf69df", "f34c7888cf", "f4e09d0898", "f51652f3ee", "f7121c4b3b", "f7bb056b02", "fb900f0d88", "fed2f3fc18", "ff59ef2d67", "ff7edbaa03"]);
+const PKSONGS = [{"key":"pk_04","song":"04_繞路","dim":"速度","note":"咬字密度、大跳音程"},{"key":"pk_01","song":"01_風向","dim":"垂直","note":"換聲區、真假音交界"},{"key":"pk_03","song":"03_定影","dim":"控制","note":"長音、弱聲"}];
+
+const AUDIO="audio/", clip=(id,st)=>AUDIO+FMAP[id+"_"+st]+".mp3";
+const hasClip=(id,st)=>{const h=FMAP[id+"_"+st];return !!h&&(typeof HAVE==="undefined"||HAVE.has(h))};
+const songsFor=(x,y)=>PKSONGS.filter(s=>hasClip(x,s.key)&&hasClip(y,s.key));
+const COACHES=["你","老派技術控","情緒派","市場派"];
+const TURN_QUOTA=6, PK_TARGET=8, NIGHT_TARGET=6;
+const LABELS=["甲","乙","丙","丁","戊","己","庚","辛"];
+const nm=id=>NICK[id]||id;
+const fullnm=id=>`${RNAME[id]||""}「${NICK[id]||id}」`;
+const sname=s=>SONGNAME[s]||s;
+const ONLINE=(typeof CLOUD_URL!=="undefined" && CLOUD_URL);
+const app=document.getElementById("app");
+const el=h=>{const d=document.createElement("div");d.innerHTML=h;return d.firstElementChild};
+const lyricBox=()=>`<div class="lyric"><div class="now" style="opacity:.35">♪</div><div class="next"></div></div>`;
+function attachLyrics(au,song,box){
+  const L=(typeof LYRICS!=="undefined")&&LYRICS[song];
+  if(!L||!box){if(box)box.style.display="none";return}
+  const now=box.querySelector(".now"),nx=box.querySelector(".next");
+  au.addEventListener("timeupdate",()=>{
+    const t=au.currentTime;let cur=null,next=null;
+    for(const ln of L){
+      if(t>=ln[0]-0.15&&t<=ln[1]+0.35){cur=ln}
+      else if(ln[0]>t){next=ln;break}
+    }
+    now.textContent=cur?cur[2]:"♪";
+    now.style.opacity=cur?1:0.35;
+    nx.textContent=next?next[2]:"";
+  });
+}
+const S={i:0,order:[],teams:{},quota:{},turns:[],persuade:[],scores:[],events:[],
+  pkN:0,pkPicks:[],saves:{},gone:[],night:null};
+const shuffled=n=>{const a=[...Array(n).keys()];
+  for(let k=a.length-1;k>0;k--){const r=Math.floor(Math.random()*(k+1));[a[k],a[r]]=[a[r],a[k]]}return a};
+const teamOf=id=>Object.keys(S.teams).find(t=>S.teams[t].includes(id));
+const alive=()=>Object.values(S.teams).flat();
+const heardCount=id=>S.scores.filter(s=>s.id===id).length;
+const teamCounts=()=>Object.fromEntries(COACHES.map(x=>[x,S.teams[x].length]));
+const zeroTeams=()=>COACHES.filter(x=>S.teams[x].length===0);
+function visitorId(){let v=null;try{v=sessionStorage.getItem("hx_v")}catch(e){}
+  if(!v){v=Math.random().toString(36).slice(2,10);try{sessionStorage.setItem("hx_v",v)}catch(e){}}return v}
+async function cloud(action,payload){
+  if(!ONLINE) return null;
+  try{const r=await fetch(CLOUD_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify(Object.assign({action,key:CLOUD_WRITE_KEY,visitor:visitorId()},payload))});
+    const jj=await r.json(); return jj&&jj.ok?jj:null;}catch(e){return null}
+}
+/* ---------- 進度暫存 ---------- */
+const SAVEKEY="hx_save2";
+let fi=0;
+function resetState(){
+  S.i=0;S.order=shuffled(PUB.length);
+  S.teams={};S.quota={};COACHES.forEach(x=>{S.teams[x]=[];S.quota[x]=TURN_QUOTA});
+  S.turns=[];S.persuade=[];S.scores=[];S.events=[];S.pkN=0;S.pkPicks=[];
+  S.saves={};COACHES.forEach(x=>S.saves[x]=1);S.gone=[];S.night=null;fi=0;
+}
+function saveGame(phase){try{localStorage.setItem(SAVEKEY,JSON.stringify({v:2,ts:Date.now(),phase,fi,S}))}catch(e){}}
+function loadGame(){try{const j=JSON.parse(localStorage.getItem(SAVEKEY));
+  return j&&j.v===2&&j.S&&j.S.teams?j:null}catch(e){return null}}
+function clearSave(){try{localStorage.removeItem(SAVEKEY)}catch(e){}}
+function applySave(j){
+  Object.assign(S,j.S); fi=j.fi||0;
+  if(!S.order||S.order.length!==PUB.length) S.order=shuffled(PUB.length);
+  if(j.phase==="finals") return finals();
+  if(j.phase==="night") return nightIntro();
+  if(j.phase==="pk") return pk();
+  return blind();
+}
+function saveLabel(j){
+  if(j.phase==="pk") return "PK 第一夜";
+  if(j.phase==="night") return "決選之夜";
+  if(j.phase==="finals") return "決賽 第 "+((j.fi||0)+1)+" 位";
+  return "盲選 "+Math.min(j.S.i+1,PUB.length)+" / "+PUB.length;
+}
+function exportSave(){const j=loadGame();if(!j)return;
+  const b=new Blob([JSON.stringify(j)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="海選進度.json";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000)}
+function importSave(file){const rd=new FileReader();
+  rd.onload=()=>{try{const j=JSON.parse(rd.result);
+    if(!j||j.v!==2||!j.S||!j.S.teams)throw 0;
+    try{localStorage.setItem(SAVEKEY,JSON.stringify(j))}catch(e){}
+    applySave(j);}catch(e){alert("這個檔案不是海選的進度檔（或是舊版）");}};
+  rd.readAsText(file)}
+
+/* ---------- 開場 ---------- */
+function intro(){
+  const sv=loadGame();
+  app.innerHTML=`
+  <p class="eyebrow">音樂選秀模擬</p>
+  <h1>海選</h1>
+  <p class="muted">十六個人會唱歌給你聽。你只有聲音，沒有畫面。</p>
+  <p class="muted">你轉身、你搶人、你選歌、你打分數。全程都有人在記錄你怎麼做決定。</p>
+  <div class="card">
+    <div class="rowline"><span>盲選</span><span class="mono muted">16 人 · 你只有 ${TURN_QUOTA} 次轉身</span></div>
+    <div class="rowline"><span>PK 第一夜</span><span class="mono muted">16→8 · 攻擊方選歌</span></div>
+    <div class="rowline"><span>決選之夜</span><span class="mono muted">8→6 · 匿名排名</span></div>
+    <div class="rowline"><span>決賽</span><span class="mono muted">6 人 · 同一首歌</span></div>
+  </div>
+  <p class="small muted">隊伍人數沒有上限，但轉身只有 ${TURN_QUOTA} 次——而且轉了不一定搶得到，額度不退。每位導師保證至少一人進 PK。PK 由攻擊方決定打誰、派誰、唱哪一首。決選之夜八個人匿名重唱一首新歌，四位導師各交一份完整排序，總名次最後兩名淘汰。每位導師整場有一張保命符 🎟。</p>
+  ${ONLINE?"":'<p class="small" style="color:var(--red)">離線模式：config.js 沒有設定，NPC 會用隨機值，結算不會有相關係數。</p>'}
+  ${sv?`<div class="card"><div class="rowline"><span>上次玩到</span><span class="mono">${saveLabel(sv)}</span></div></div>
+  <button class="btn primary" id="cont">繼續上次</button>
+  <button class="btn" id="go">重新開始</button>`
+  :'<button class="btn primary" id="go">開始</button>'}
+  <p class="small muted" style="margin-top:16px">進度會自動存在這個瀏覽器。
+  ${sv?'<a href="#" id="exp" style="color:var(--dim)">匯出進度檔</a>　':""}<a href="#" id="imp" style="color:var(--dim)">匯入進度檔</a>
+  <input type="file" id="impf" accept=".json,application/json" style="display:none"></p>`;
+  if(sv){document.getElementById("cont").onclick=()=>applySave(sv);
+    document.getElementById("exp").onclick=e=>{e.preventDefault();exportSave()}}
+  document.getElementById("go").onclick=()=>{clearSave();resetState();blind()};
+  const impf=document.getElementById("impf");
+  document.getElementById("imp").onclick=e=>{e.preventDefault();impf.click()};
+  impf.onchange=()=>{if(impf.files[0])importSave(impf.files[0])};
+}
+/* ---------- 盲選 ---------- */
+const forcedNow=()=>(PUB.length-S.i)<=zeroTeams().length && zeroTeams().length>0;
+function blind(){
+  if(S.i>=PUB.length) return teamsDone();
+  saveGame("blind");
+  const c=PUB[S.order[S.i]], forced=forcedNow(), q=S.quota["你"];
+  app.innerHTML=`
+  <p class="eyebrow">盲選 ${S.i+1} / ${PUB.length}${forced?" · 保底輪":""}</p>
+  <div class="stage">
+    <div class="timer"><span id="t">0.0</span><small>秒</small></div>
+    <div class="chair" id="chair"><span>未轉身</span></div>
+  </div>
+  <p class="mono small muted">自選曲《${sname(c.song)}》</p>
+  <audio id="au" src="${clip(c.id,'blind')}" preload="auto"></audio>
+  <div class="bar"><i id="prog"></i></div>
+  ${lyricBox()}
+  <div class="coach">${COACHES.map(x=>`<span class="chip ${x==="你"?"me":""}">${x} ${S.teams[x].length}人 · 轉身${S.quota[x]}</span>`).join("")}</div>
+  <button class="btn primary" id="play">播放</button>
+  <button class="btn" id="turn"${q<=0?" disabled":""}>${q>0?`轉身（剩 ${q} 次）`:"轉身額度用完了"}</button>
+  <button class="btn" id="skip">聽夠了，直接看結果</button>
+  ${forced?'<p class="small" style="color:var(--amber)">保底輪：還有導師零人，這一位唱完直接指派。</p>':""}
+  ${q<=0?'<p class="small" style="color:var(--amber)">你的六次轉身已經用完，接下來只能聽。</p>':""}`;
+  const au=document.getElementById("au"),chair=document.getElementById("chair");
+  attachLyrics(au,FMAP[c.id+"_blind"],app.querySelector(".lyric"));
+  let my=null,done=false;
+  document.getElementById("play").onclick=e=>{au.play();e.target.textContent="播放中…"};
+  au.ontimeupdate=()=>{document.getElementById("t").textContent=au.currentTime.toFixed(1);
+    document.getElementById("prog").style.width=(au.currentTime/(au.duration||1)*100)+"%"};
+  au.onended=()=>{if(!done){done=true;settle(c,my,forced)}};
+  document.getElementById("turn").onclick=e=>{
+    if(my!==null||S.quota["你"]<=0)return;
+    my=au.currentTime||0.1; S.quota["你"]--;
+    chair.classList.add("turned");chair.querySelector("span").textContent="已轉身";
+    e.target.disabled=true;e.target.textContent=`已轉身（剩 ${S.quota["你"]} 次）`;
+  };
+  document.getElementById("skip").onclick=()=>{au.pause();if(!done){done=true;settle(c,my,forced)}};
+}
+async function settle(c,my,forced){
+  app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length}</p><p class="muted">結算中…</p>`;
+  const r=await cloud("turn",{id:c.id,teams:teamCounts(),quota:S.quota});
+  let npc=(r?r.npcTurned:COACHES.slice(1).filter(x=>Math.random()<0.45)).filter(x=>S.quota[x]>0);
+  npc.forEach(x=>S.quota[x]--);
+  S.turns.push({id:c.id,sec:my,quotaLeft:S.quota["你"]});
+  const turned=(my!==null?["你"]:[]).concat(npc);
+  if(forced){
+    const to=zeroTeams()[0]; S.teams[to].push(c.id);
+    S.events.push(`${nm(c.id)} 是保底指派給${to==="你"?"你":to}的。`);
+    return after(c,`沒有轉身也沒有選擇。${nm(c.id)} 被指派給${to==="你"?"你":to}。`);
+  }
+  if(!turned.length){S.gone.push(c.id);return after(c,`沒有人轉身。${nm(c.id)} 離開了。`)}
+  if(my===null){
+    const to=turned[Math.floor(Math.random()*turned.length)];
+    S.teams[to].push(c.id);
+    return after(c,`${turned.join("、")}轉身。${nm(c.id)} 選了${to}。`);
+  }
+  if(turned.length===1){S.teams["你"].push(c.id);return after(c,`只有你轉身。${nm(c.id)} 進了你的隊。`)}
+  persuadeUI(c,turned);
+}
+function persuadeUI(c,turned){
+  const others=turned.filter(x=>x!=="你");
+  app.innerHTML=`<p class="eyebrow">搶人 · ${nm(c.id)}</p>
+  <div class="card"><p style="margin:0">${c.intro}</p></div>
+  <p class="small muted">轉身的還有：${others.join("、")}。他要自己選。你說一句話。</p>
+  <p class="small" style="color:var(--amber)">你已經花掉一次轉身額度。搶不到也不會退。</p>
+  <div id="opts"></div>`;
+  c.lines.forEach((line,ix)=>{
+    const b=el(`<button class="btn">${line}</button>`);
+    b.onclick=async()=>{
+      b.disabled=true;
+      const r=await cloud("persuade",{id:c.id,option:ix,turned});
+      const res=r?r.result:"平手";
+      const to=r?r.to:(Math.random()<0.5?"你":others[0]);
+      const why=r?r.why:`${nm(c.id)} 選了${to}。`;
+      S.persuade.push({id:c.id,option:ix,result:res,won:to==="你"});
+      if(to!=="你") S.events.push(`你為 ${nm(c.id)} 轉身，被${to}搶走了。`);
+      S.teams[to].push(c.id); after(c,why,res);
+    };
+    document.getElementById("opts").appendChild(b);
+  });
+}
+function after(c,msg,res){
+  S.i++;
+  const tag=res?{"大勝":"◎ 大勝","命中":"○ 命中","普通":"△ 普通","平手":"— 平手","反效果":"✗ 反效果"}[res]:"";
+  app.innerHTML=`<p class="eyebrow">盲選 ${S.i} / ${PUB.length}</p>
+  <div class="card"><p style="margin:0">${c.intro}</p></div>
+  <p>${msg}</p>
+  ${teamOf(c.id)?`<p class="small muted mono">報名表上的名字：${RNAME[c.id]}（代號 ${c.id}）</p>`:""}
+  ${tag?`<p class="result ${res==="反效果"?"bad":"ok"}">${tag}</p>`:""}
+  <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${x}<span class="small muted"> 轉身剩 ${S.quota[x]}</span></span><span class="mono muted">${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
+  <button class="btn primary" id="n">${S.i>=PUB.length?"組隊完成":"下一位"}</button>`;
+  document.getElementById("n").onclick=blind;
+}
+
+/* ---------- 組隊 → PK 第一夜 ---------- */
+function fillEmptyTeams(){
+  COACHES.forEach(t=>{
+    if(S.teams[t].length===0){
+      if(S.gone.length){
+        const id=S.gone.splice(Math.floor(Math.random()*S.gone.length),1)[0];
+        S.teams[t].push(id);
+        S.events.push(`${t}把落選的 ${nm(id)} 簽了回來，隊上至少要有一個人。`);
+      }else{
+        const big=COACHES.filter(x=>x!==t&&S.teams[x].length>1).sort((a,b)=>S.teams[b].length-S.teams[a].length)[0];
+        if(big){const id=S.teams[big][S.teams[big].length-1];
+          S.teams[big]=S.teams[big].filter(x=>x!==id);S.teams[t].push(id);
+          S.events.push(`${nm(id)} 被協調轉到${t}，每一隊都要有人。`);}
+      }
+    }
+  });
+}
+function teamsDone(){
+  fillEmptyTeams();
+  const sizes=COACHES.map(x=>S.teams[x].length);
+  app.innerHTML=`<p class="eyebrow">盲選結束</p><h2>四隊成軍</h2>
+  <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${x}</span><span class="mono">${S.teams[x].length} 人　${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
+  <p class="muted">你用掉 ${TURN_QUOTA-S.quota["你"]} 次轉身，帶回 ${S.teams["你"].length} 個人。</p>
+  <p class="small muted">人數不平均是正常的——那是搶來的，不是分的。</p>
+  <div class="card"><h2 style="font-size:18px">PK 第一夜</h2>
+  <p class="small muted" style="margin:0">共 ${alive().length-PK_TARGET} 場，打到剩 ${PK_TARGET} 人。攻擊方決定三件事：打哪一隊、派誰上場、<b>唱哪一首</b>。</p>
+  ${PKSONGS.map(s=>`<div class="rowline"><span>《${sname(s.song)}》</span><span class="mono muted">${s.dim}　${s.note}</span></div>`).join("")}
+  </div>
+  <p class="small muted">兩人唱同一首才能比。只剩一人的隊伍不能攻擊也不能被攻擊。每位導師整場有一張保命符 🎟。</p>
+  <button class="btn primary" id="g">開始 PK</button>`;
+  document.getElementById("g").onclick=pk;
+}
+function pk(){
+  fillEmptyTeams();
+  if(alive().length<=PK_TARGET) return nightIntro();
+  saveGame("pk");
+  const order=COACHES.filter(x=>S.teams[x].length>1).sort((a,b)=>S.teams[b].length-S.teams[a].length);
+  if(!order.length) return nightIntro();
+  const atk=order[S.pkN%order.length];
+  const targets=COACHES.filter(x=>x!==atk&&S.teams[x].length>1);
+  if(!targets.length) return nightIntro();
+  if(atk!=="你"){
+    const tg=targets[Math.floor(Math.random()*targets.length)];
+    const A=S.teams[atk][0], D=S.teams[tg][Math.floor(Math.random()*S.teams[tg].length)];
+    const av=songsFor(A,D), sg=(av.length?av:PKSONGS)[Math.floor(Math.random()*(av.length||PKSONGS.length))];
+    return duet(atk,tg,A,D,sg);
+  }
+  app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN+1} · 你出手</p><h2>要打哪一隊</h2>
+  <p class="small muted">還剩 ${alive().length} 人，打到 ${PK_TARGET} 人。只剩一人的隊伍不能被攻擊。</p><div id="t"></div>`;
+  targets.forEach(tg=>{
+    const b=el(`<button class="btn">${tg}　<span class="muted small mono">${S.teams[tg].map(nm).join(" ")}</span></button>`);
+    b.onclick=()=>pickFighter(tg);
+    document.getElementById("t").appendChild(b);
+  });
+}
+function pickFighter(tg){
+  app.innerHTML=`<p class="eyebrow">PK 第一夜 · 派誰上場</p><h2>你派誰去打 ${tg}</h2><div id="m"></div>`;
+  S.teams["你"].forEach(id=>{
+    const d=PUB.find(x=>x.id===id);
+    const bb=el(`<button class="btn">${nm(id)}　<span class="muted small">盲選唱《${sname(d.song)}》</span></button>`);
+    bb.onclick=()=>pickSong(tg,id);
+    document.getElementById("m").appendChild(bb);
+  });
+}
+function pickSong(tg,mine){
+  const foe=S.teams[tg][Math.floor(Math.random()*S.teams[tg].length)];
+  const avail=songsFor(mine,foe), lack=PKSONGS.length-avail.length;
+  if(!avail.length) return duet("你",tg,mine,foe,PKSONGS[0]);
+  app.innerHTML=`<p class="eyebrow">PK 第一夜 · 選題目</p>
+  <h2>${nm(mine)} vs ${nm(foe)}</h2>
+  <p class="small muted">兩個人唱同一首。你選哪一首，就決定了今天比什麼。</p><div id="s"></div>
+  ${lack?`<p class="small" style="color:var(--amber);margin-top:12px">還有 ${lack} 首兩人之中有人的音檔沒渲染，這一場不能選。</p>`:""}
+  <p class="small muted" style="margin-top:14px">挑自己人的強項，還是挑對手的弱項——這一題只有你自己知道答案。</p>`;
+  avail.forEach(sg=>{
+    const b=el(`<button class="btn">《${sname(sg.song)}》　<span class="muted small">${sg.dim} · ${sg.note}</span></button>`);
+    b.onclick=()=>duet("你",tg,mine,foe,sg);
+    document.getElementById("s").appendChild(b);
+  });
+}
+function duet(atk,def,a,d,sg){
+  const youIn=(atk==="你"||def==="你");
+  const npcJudges=COACHES.slice(1).filter(x=>x!==atk&&x!==def);
+  const judgeNote=youIn?`你的隊員在場上，你不能評自己人。這一場由${npcJudges.join("、")}評分。`
+                       :`兩隊導師迴避，這一場由你和${npcJudges.join("、")}評分。`;
+  S.pkPicks.push({round:S.pkN+1,atk,def,a,d,song:sg.song,byYou:atk==="你"});
+  app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN+1} · ${atk} 攻 ${def}</p><h2>${fullnm(a)} vs ${fullnm(d)}</h2>
+  <p class="small muted">題目：《${sname(sg.song)}》—— ${sg.dim}，${sg.note}。${atk==="你"?"你選的。":atk+"選的。"}</p>
+  <p class="mono small" style="color:var(--amber)">${nm(a)}</p><audio controls src="${clip(a,sg.key)}"></audio>
+  <p class="mono small" style="color:var(--cyan)">${nm(d)}</p><audio controls src="${clip(d,sg.key)}"></audio>
+  ${lyricBox()}
+  <button class="btn" id="both">兩個一起播（合唱）</button>
+  <p class="small muted">${judgeNote}</p>
+  ${youIn?`<div class="card" id="cheerbox"><p class="small" style="margin:0 0 8px">你不能打分數，但輪到你講一句話：</p></div>`
+   :`<div class="card">
+    <label class="small">你給 ${nm(a)}：<b id="va" class="mono">7</b></label>
+    <input class="slider" type="range" min="1" max="10" value="7" id="sa">
+    <label class="small">你給 ${nm(d)}：<b id="vd" class="mono">7</b></label>
+    <input class="slider" type="range" min="1" max="10" value="7" id="sd"></div>`}
+  <button class="btn primary" id="ok">${youIn?"聽評審宣布":"送出評分"}</button>`;
+  {const _a=document.querySelectorAll("audio");
+   attachLyrics(_a[0],FMAP[a+"_"+sg.key],app.querySelector(".lyric"));
+   attachLyrics(_a[1],FMAP[d+"_"+sg.key],app.querySelector(".lyric"));}
+  document.getElementById("both").onclick=()=>document.querySelectorAll("audio").forEach(x=>{x.currentTime=0;x.play()});
+  if(!youIn)["a","d"].forEach(k=>{const s=document.getElementById("s"+k);
+    s.oninput=()=>document.getElementById("v"+k).textContent=s.value});
+  const mineOnStage=youIn?(teamOf(a)==="你"?a:d):null;
+  let cheer=null,cheerLine="";
+  if(youIn){
+    const POOL={tech:["他的音準從頭到尾沒有跑過，不信你們再聽一次。","那個轉音是一個晚上一個晚上練出來的，不是運氣。","整段的氣息多穩，你們是行家，聽得出來。","副歌那幾個字的咬字，一個都沒有糊掉。"],
+      story:["你們知道他今天是下了工直接趕過來的嗎？","這首歌，他是唱給家裡那個人聽的。","台下有人是專程為了他坐三小時的車來的。","他練歌的地方連冷氣都沒有。"],
+      none:["（你想了想，把話吞了回去。）","（你只是點點頭，什麼都沒說。）","（你交叉手臂，讓歌自己說話。）"]};
+    const opts=["tech","story","none"].map(c=>({c,line:POOL[c][Math.floor(Math.random()*POOL[c].length)]}));
+    for(let k=opts.length-1;k>0;k--){const r=Math.floor(Math.random()*(k+1));[opts[k],opts[r]]=[opts[r],opts[k]]}
+    const box=document.getElementById("cheerbox");
+    opts.forEach(o=>{const b=el(`<button class="btn">${o.line}</button>`);
+      b.onclick=()=>{cheer=o.c;cheerLine=o.line;
+        box.querySelectorAll("button").forEach(x=>{x.disabled=true;x.style.opacity=x===b?1:.35})};
+      box.appendChild(b)});
+  }
+  document.getElementById("ok").onclick=async()=>{
+    const ma=youIn?null:+document.getElementById("sa").value;
+    const md=youIn?null:+document.getElementById("sd").value;
+    document.getElementById("ok").disabled=true;
+    const NPCIDX={"老派技術控":0,"情緒派":1,"市場派":2};
+    const CHEER={tech:{"老派技術控":0.7},story:{"情緒派":0.4,"市場派":0.4}};
+    const tot={};
+    for(const [id,mine] of [[a,ma],[d,md]]){
+      const r=await cloud("score",{id,stage:"PK",song:sg.song,mine:mine===null?5:mine,heard:heardCount(id)});
+      const npcs=r?r.npcs:[0,1,2].map(()=>5+Math.random()*3);
+      const aud=r?r.aud:Math.max(1,7-heardCount(id)*0.3);
+      const votes=npcJudges.map(x=>{let v=npcs[NPCIDX[x]];
+        if(id===mineOnStage&&cheer&&CHEER[cheer]&&CHEER[cheer][x]) v=Math.min(10,v+CHEER[cheer][x]);
+        return v});
+      if(mine!==null) votes.push(mine);
+      tot[id]=votes.reduce((s,v)=>s+v,0)/votes.length*0.5+aud*0.5;
+      if(mine!==null) S.scores.push({id,stage:"PK",song:sg.song,mine,total:tot[id]});
+    }
+    const loser=tot[a]<tot[d]?a:d, lt=teamOf(loser);
+    const cheerNote=(mineOnStage&&cheerLine)?(cheer==="none"?`<p class="small muted">${cheerLine}</p>`:`<p class="small muted">你：「${cheerLine}」</p>`):"";
+    const showResult=(msg)=>{
+      app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN} 結果</p>
+      <p class="small muted">題目《${sname(sg.song)}》・評審：${youIn?npcJudges.join("、"):"你、"+npcJudges.join("、")}</p>
+      ${cheerNote}
+      <div class="card">
+        <div class="rowline"><span>${nm(a)}</span><span class="mono">${tot[a].toFixed(2)}</span></div>
+        <div class="rowline"><span>${nm(d)}</span><span class="mono">${tot[d].toFixed(2)}</span></div>
+      </div><p>${msg}</p>
+      <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${x}</span><span class="mono muted">${S.teams[x].map(nm).join(" ")||"—"}${S.saves[x]>0?"　🎟":""}</span></div>`).join("")}</div>
+      <p class="small muted">還剩 ${alive().length} 人　🎟 = 還沒用掉保命符</p>
+      <button class="btn primary" id="n">${alive().length<=PK_TARGET?"進決選之夜":"下一場"}</button>`;
+      document.getElementById("n").onclick=pk;
+    };
+    const eliminate=()=>{S.teams[lt]=S.teams[lt].filter(x=>x!==loser);S.gone.push(loser);S.pkN++;
+      showResult(`${nm(loser)} 出局，${lt} 少一人。`)};
+    const useSave=()=>{S.saves[lt]--;S.pkN++;
+      S.events.push(`${lt}用掉保命符，保住了 ${nm(loser)}。`);
+      showResult(`${nm(loser)} 輸了，但${lt==="你"?"你":lt}用掉唯一一次保命符，把他保了下來。`)};
+    if(lt==="你"&&S.saves["你"]>0){
+      app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN+1} 結果</p>
+      <div class="card"><div class="rowline"><span>${nm(a)}</span><span class="mono">${tot[a].toFixed(2)}</span></div>
+      <div class="rowline"><span>${nm(d)}</span><span class="mono">${tot[d].toFixed(2)}</span></div></div>
+      <p>${nm(loser)} 輸了。你手上還有一張保命符（整場只有一次）。</p>
+      <button class="btn primary" id="usesv">用保命符，保住 ${nm(loser)}</button>
+      <button class="btn danger" id="letgo">讓他走</button>`;
+      document.getElementById("usesv").onclick=useSave;
+      document.getElementById("letgo").onclick=eliminate;
+    }else if(lt!=="你"&&S.saves[lt]>0&&(S.teams[lt].length<=2||Math.random()<0.35)) useSave();
+    else eliminate();
+  };
+}
+
+/* ---------- 決選之夜（8 → 6，匿名排名） ---------- */
+function nightIntro(){
+  fillEmptyTeams();
+  if(!S.night){
+    const list=alive(); const ord=shuffled(list.length);
+    S.night={slots:ord.map(k=>list[k]),myRank:[],done:false};
+  }
+  saveGame("night");
+  app.innerHTML=`<p class="eyebrow">決選之夜</p><h2>剩下 ${alive().length} 人</h2>
+  <p class="muted">八個人各唱一首你今晚沒聽過的歌。</p>
+  <div class="card">
+    <p class="small" style="margin:0 0 10px"><b>台上沒有名字，也沒有隊伍。</b></p>
+    <p class="small muted" style="margin:0">你在第一關是在不知道他們是誰的情況下轉身的。今天你知道了一切，然後標籤又被拿掉。你要靠耳朵認出誰是誰。</p>
+  </div>
+  <p class="small muted">四位導師各交一份 1–8 的完整排序，四份加總，總名次最後兩名淘汰。你可能會把自己的人排在後面——沒有人會攔你。</p>
+  <p class="small" style="color:var(--amber)">保底：如果淘汰會讓某位導師掛零，換總名次次差的出局。</p>
+  <button class="btn primary" id="g">開始</button>`;
+  document.getElementById("g").onclick=night;
+}
+function night(){
+  saveGame("night");
+  const slots=S.night.slots;
+  app.innerHTML=`<p class="eyebrow">決選之夜</p><h2>八個人，八首歌</h2>
+  <p class="small muted">全部聽完，再依你的喜好排序：先點你認為第 1 名的，再點第 2 名，依此類推。</p>
+  <div id="stagelist"></div>
+  <div class="card"><h2 style="font-size:18px">你的排序</h2><p class="mono" id="rankline" style="margin:0">—</p></div>
+  <button class="btn" id="undo">收回上一個</button>
+  <button class="btn primary" id="ok" disabled>送出排序</button>`;
+  const box=document.getElementById("stagelist");
+  slots.forEach((id,ix)=>{
+    const p=PUB.find(x=>x.id===id), ok=hasClip(id,'night');
+    const card=el(`<div class="card">
+      <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">《${sname(p.night)}》${ok?"":"（音檔還沒渲染）"}</span></span><span class="mono muted" id="r${ix}">—</span></div>
+      ${ok?`<audio controls src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的決選之夜音檔還沒做好，只能憑前面幾關的印象排。</p>`}
+      ${lyricBox()}
+      <button class="btn" data-ix="${ix}">選 ${LABELS[ix]}</button>
+    </div>`);
+    box.appendChild(card);
+    const _au=card.querySelector("audio");
+    if(_au) attachLyrics(_au,FMAP[id+"_night"],card.querySelector(".lyric"));
+    else {const lb=card.querySelector(".lyric"); if(lb) lb.style.display="none";}
+  });
+  const refresh=()=>{
+    slots.forEach((_,ix)=>{
+      const r=S.night.myRank.indexOf(ix);
+      document.getElementById("r"+ix).textContent=r<0?"—":"第 "+(r+1)+" 名";
+      const b=box.querySelector(`button[data-ix="${ix}"]`);
+      b.disabled=r>=0; b.style.opacity=r>=0?.35:1;
+    });
+    document.getElementById("rankline").textContent=
+      S.night.myRank.length?S.night.myRank.map((ix,k)=>`${k+1}.${LABELS[ix]}`).join("　"):"—";
+    document.getElementById("ok").disabled=S.night.myRank.length!==slots.length;
+  };
+  box.querySelectorAll("button[data-ix]").forEach(b=>{
+    b.onclick=()=>{S.night.myRank.push(+b.dataset.ix);refresh()};
+  });
+  document.getElementById("undo").onclick=()=>{S.night.myRank.pop();refresh()};
+  refresh();
+  document.getElementById("ok").onclick=async()=>{
+    document.getElementById("ok").disabled=true;
+    const ids=S.night.myRank.map(ix=>slots[ix]);
+    const r=await cloud("nightRank",{ids});
+    const n=ids.length;
+    const npcRanks=r?r.npcRanks:COACHES.slice(1).map(()=>shuffled(n).map(k=>ids[k]));
+    const sum={}; ids.forEach((id,k)=>sum[id]=k+1);
+    npcRanks.forEach(list=>list.forEach((id,k)=>sum[id]+=k+1));
+    const board=ids.map(id=>({id,sum:sum[id]})).sort((a,b)=>a.sum-b.sum);
+    const out=[];
+    for(let k=board.length-1;k>=0&&out.length<2;k--){
+      const id=board[k].id,t=teamOf(id);
+      if(S.teams[t].length-out.filter(o=>teamOf(o)===t).length<=1) continue;
+      out.push(id);
+    }
+    while(out.length<2){const cand=board.slice().reverse().find(x=>!out.includes(x.id));if(!cand)break;out.push(cand.id)}
+    S.night.board=board; S.night.out=out; S.night.myOrder=ids; S.night.done=true;
+    nightResult(board,out,ids,npcRanks);
+  };
+}
+function nightResult(board,out,ids,npcRanks){
+  const myPos=id=>ids.indexOf(id)+1;
+  const mine=S.teams["你"];
+  out.forEach(id=>{const t=teamOf(id);S.teams[t]=S.teams[t].filter(x=>x!==id);S.gone.push(id)});
+  const mineOut=out.filter(id=>mine.includes(id));
+  mineOut.forEach(id=>S.events.push(`決選之夜你把自己的 ${nm(id)} 排在第 ${myPos(id)}，他出局了。`));
+  const mineRanks=mine.filter(id=>ids.includes(id)).map(id=>({id,r:myPos(id)}));
+  app.innerHTML=`<p class="eyebrow">決選之夜 · 開牌</p><h2>總名次</h2>
+  <div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}<span class="small muted"> ${teamOf(x.id)||"已出局"}</span></span><span class="mono muted">總分 ${x.sum}　你排第 ${myPos(x.id)}</span></div>`).join("")}</div>
+  <p>${out.map(id=>fullnm(id)).join("、")} 出局。</p>
+  ${mineRanks.length?`<div class="card"><h2 style="font-size:18px">你自己的人，你排在哪</h2>
+    ${mineRanks.map(x=>`<div class="rowline"><span>${nm(x.id)}</span><span class="mono ${x.r>5?"neg":"pos"}">第 ${x.r} 名</span></div>`).join("")}
+    <p class="small muted" style="margin:10px 0 0">${mineOut.length?"你親手把自己的人排下去了。":"你把自己的人都排在安全區。"}</p></div>`:""}
+  <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${x}</span><span class="mono muted">${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
+  <button class="btn primary" id="n">進決賽</button>`;
+  document.getElementById("n").onclick=finalsIntro;
+}
+/* ---------- 決賽 ---------- */
+function finalsIntro(){
+  fi=0; fillEmptyTeams();
+  app.innerHTML=`<p class="eyebrow">決賽</p><h2>剩下 ${alive().length} 人</h2>
+  <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${x}</span><span class="mono">${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
+  <p class="muted">各唱一次《會客時間》。同一首歌，這一關是純比較。</p>
+  <button class="btn primary" id="g">開始</button>`;
+  document.getElementById("g").onclick=finals;
+}
+function finals(){
+  const list=alive();
+  if(fi>=list.length) return report();
+  saveGame("finals");
+  const id=list[fi];
+  app.innerHTML=`<p class="eyebrow">決賽 ${fi+1} / ${list.length}</p><h2>${fullnm(id)}</h2>
+  <p class="small muted mono">${teamOf(id)}</p>
+  <audio controls src="${clip(id,'final')}"></audio>
+  ${lyricBox()}
+  <div class="card"><label class="small">你給：<b id="v" class="mono">7</b></label>
+  <input class="slider" type="range" min="1" max="10" value="7" id="s"></div>
+  <button class="btn primary" id="ok">送出</button>`;
+  const s=document.getElementById("s");
+  attachLyrics(app.querySelector("audio"),FMAP[id+"_final"],app.querySelector(".lyric"));
+  s.oninput=()=>document.getElementById("v").textContent=s.value;
+  document.getElementById("ok").onclick=async()=>{
+    document.getElementById("ok").disabled=true;
+    const mine=+s.value;
+    const r=await cloud("score",{id,stage:"決賽",mine,heard:heardCount(id)});
+    S.scores.push({id,stage:"決賽",mine,total:r?r.total:(mine*0.5+(5+Math.random()*3)*0.5)});
+    fi++; finals();
+  };
+}
+
+/* ---------- 結算 ---------- */
+async function report(){
+  clearSave();
+  app.innerHTML=`<p class="eyebrow">結算</p><p class="muted">正在對帳…</p>`;
+  const champ=S.scores.filter(s=>s.stage==="決賽").sort((a,b)=>b.total-a.total)[0];
+  const r=await cloud("report",{turns:S.turns,scores:S.scores,persuade:S.persuade,pkPicks:S.pkPicks,
+    night:S.night?{myOrder:S.night.myOrder,board:S.night.board,out:S.night.out}:null,
+    champion:champ?champ.id:"",teams:S.teams,events:S.events});
+  const f=v=>v===null||v===undefined?"—":(v>=0?"+":"")+Number(v).toFixed(2);
+  const cls=v=>v===null||v===undefined?"":(v>0?"pos":"neg");
+  const turnedYes=S.turns.filter(t=>t.sec!==null);
+  const used=TURN_QUOTA-S.quota["你"], stolen=S.persuade.filter(p=>!p.won);
+  const myPicks=S.pkPicks.filter(p=>p.byYou);
+  const cnt={}; myPicks.forEach(p=>cnt[p.song]=(cnt[p.song]||0)+1);
+  const topSong=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+  const nightMine=(S.night&&S.night.myOrder)?S.night.myOrder.map((id,k)=>({id,r:k+1}))
+      .filter(x=>(S.teams["你"].includes(x.id)||(S.night.out||[]).includes(x.id))):[];
+  app.innerHTML=`<p class="eyebrow">結算</p>
+  <h1 style="font-size:38px">這是你的資料</h1>
+  <p class="muted">下面每一個數字，都是你自己的選擇算出來的。</p>
+
+  <div class="card"><h2 style="font-size:18px">盲選 · 你的六次轉身</h2>
+    <div class="rowline"><span>用掉幾次</span><span class="mono">${used} / ${TURN_QUOTA}</span></div>
+    <div class="rowline"><span>轉了之後真的搶到</span><span class="mono">${S.teams["你"].length + (S.night&&S.night.out?S.night.out.filter(id=>S.persuade.some(p=>p.id===id&&p.won)).length:0)} 人</span></div>
+    <div class="rowline"><span>轉了卻被搶走</span><span class="mono ${stolen.length?"neg":""}">${stolen.length}</span></div>
+    <div class="rowline"><span>平均聽幾秒才轉</span><span class="mono">${r&&r.avgSec?r.avgSec.toFixed(1)+" 秒":(turnedYes.length?(turnedYes.reduce((a,t)=>a+t.sec,0)/turnedYes.length).toFixed(1)+" 秒":"—")}</span></div>
+    ${r?`<div class="rowline"><span>你轉的人・平均吃力程度</span><span class="mono">${r.strainYes!==null?r.strainYes.toFixed(2):"—"}</span></div>
+    <div class="rowline"><span>你沒轉的人・平均吃力程度</span><span class="mono">${r.strainNo!==null?r.strainNo.toFixed(2):"—"}</span></div>`:""}
+    ${stolen.length?`<p class="small muted" style="margin:10px 0 0">被搶走的：${stolen.map(p=>nm(p.id)).join("、")}。額度不退。</p>`:""}
+  </div>
+
+  ${myPicks.length?`<div class="card"><h2 style="font-size:18px">PK 第一夜 · 你選的題目</h2>
+    ${PKSONGS.map(s=>`<div class="rowline"><span>《${sname(s.song)}》<span class="small muted"> ${s.dim}</span></span><span class="mono muted">${cnt[s.song]||0} 場</span></div>`).join("")}
+    ${topSong&&topSong[1]>=myPicks.length*0.6?`<p class="small muted" style="margin:10px 0 0">你 ${myPicks.length} 場裡有 ${topSong[1]} 場選了《${sname(topSong[0])}》——你只敢在同一種題目上打。</p>`
+      :`<p class="small muted" style="margin:10px 0 0">你在三種題目之間換來換去。</p>`}
+  </div>`:""}
+
+  ${S.night&&S.night.board?`<div class="card"><h2 style="font-size:18px">決選之夜 · 你的排序</h2>
+    <div class="rowline"><span>你的第 1 名，最後總名次</span><span class="mono">第 ${S.night.board.findIndex(x=>x.id===S.night.myOrder[0])+1} 名</span></div>
+    <div class="rowline"><span>你把自己人排進前四</span><span class="mono">${S.night.myOrder.slice(0,4).filter(id=>S.teams["你"].includes(id)||(S.night.out||[]).includes(id)&&S.persuade.some(p=>p.id===id&&p.won)).length} 人</span></div>
+    ${nightMine.length?`<p class="small muted" style="margin:10px 0 0">你自己的人排在：${nightMine.map(x=>nm(x.id)+" 第"+x.r).join("、")}</p>`:""}
+    ${(S.night.out||[]).length?`<p class="small" style="margin:8px 0 0">出局：${S.night.out.map(nm).join("、")}</p>`:""}
+  </div>`:""}
+
+  ${r?`<div class="card"><h2 style="font-size:18px">說服</h2>
+    <div class="rowline"><span>說中他在意的事</span><span class="mono">${r.hits} / ${r.outs}</span></div>
+    <div class="rowline"><span>猜錯</span><span class="mono ${r.wrong?"neg":""}">${r.wrong}</span></div>
+    ${r.theirCare?`<p class="small muted" style="margin:10px 0 0">站在你面前的人，最多是在意「${r.theirCare}」。</p>`:""}
+  </div>
+  <div class="card"><h2 style="font-size:18px">你的評分跟什麼有關</h2>
+    <table><tbody>${r.corr.map(([k,v])=>`<tr><td>${k}</td><td class="num report-num ${cls(v)}">${f(v)}</td></tr>`).join("")}</tbody></table>
+    <p class="small muted" style="margin:12px 0 0">相關係數。正的代表越多你給越高，負的相反。</p>
+  </div>`:'<div class="card"><p class="small" style="color:var(--red)">離線模式：沒有連上後端，這一局沒有相關係數。</p></div>'}
+
+  <div class="card"><div class="rowline"><span>冠軍</span><span class="mono">${champ?fullnm(champ.id)+"（"+teamOf(champ.id)+"）":"—"}</span></div></div>
+  ${S.events.length?`<div class="card"><h2 style="font-size:18px">發生過的事</h2>${S.events.map(e=>`<p class="small" style="margin:6px 0">${e}</p>`).join("")}</div>`:""}
+  <button class="btn primary" id="again">再玩一次</button>
+  <p class="small muted">同一批人、同一批歌。變的只有你。</p>`;
+  document.getElementById("again").onclick=()=>{clearSave();resetState();intro()};
+}
+resetState(); intro();
+
+</script>
+</body>
+</html>
