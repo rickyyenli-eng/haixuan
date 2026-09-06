@@ -40,6 +40,12 @@ button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
   border-bottom:1px solid #272033;font-size:14px}
 .rowline:last-child{border-bottom:0}
 .mono{font-family:var(--mono)}
+.dl{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  border:1px solid var(--line);color:var(--dim);padding:5px 11px;text-decoration:none;
+  margin-left:8px;vertical-align:middle;white-space:nowrap}
+.dl:hover{border-color:var(--amber);color:var(--amber)}
+.dlrow{margin:10px 0 4px}
+.dlrow .dl{margin-left:0;margin-right:8px}
 
 /* 招牌：轉椅 */
 .stage{position:relative;height:190px;display:grid;place-items:center;margin:8px 0 20px}
@@ -104,6 +110,10 @@ const LABELS=["甲","乙","丙","丁","戊","己","庚","辛"];
 const nm=id=>NICK[id]||id;
 const fullnm=id=>`${RNAME[id]||""}「${NICK[id]||id}」`;
 const sname=s=>SONGNAME[s]||s;
+/* 下載按鈕。匿名階段不能把身分寫進檔名 */
+const safeName=x=>String(x).replace(/[\\/:*?"<>|]/g,"").trim();
+const dl=(id,st,label)=>hasClip(id,st)
+  ?`<a class="dl" download="${safeName(label)}.mp3" href="${clip(id,st)}">⬇ 下載</a>`:"";
 const ONLINE=(typeof CLOUD_URL!=="undefined" && CLOUD_URL);
 const app=document.getElementById("app");
 const el=h=>{const d=document.createElement("div");d.innerHTML=h;return d.firstElementChild};
@@ -221,7 +231,7 @@ function blind(){
     <div class="timer"><span id="t">0.0</span><small>秒</small></div>
     <div class="chair" id="chair"><span>未轉身</span></div>
   </div>
-  <p class="mono small muted">自選曲《${sname(c.song)}》</p>
+  <p class="mono small muted">自選曲《${sname(c.song)}》${dl(c.id,"blind",`海選 盲選${String(S.i+1).padStart(2,"0")} ${sname(c.song)}`)}</p>
   <audio id="au" src="${clip(c.id,'blind')}" preload="auto"></audio>
   <div class="bar"><i id="prog"></i></div>
   ${lyricBox()}
@@ -292,7 +302,7 @@ function after(c,msg,res){
   app.innerHTML=`<p class="eyebrow">盲選 ${S.i} / ${PUB.length}</p>
   <div class="card"><p style="margin:0">${c.intro}</p></div>
   <p>${msg}</p>
-  ${teamOf(c.id)?`<p class="small muted mono">報名表上的名字：${RNAME[c.id]}（${c.id} 學員）</p>`:""}
+  ${teamOf(c.id)?`<p class="small muted mono">報名表上的名字：${RNAME[c.id]}（${c.id} 學員）${dl(c.id,"blind",`海選 盲選 ${RNAME[c.id]}「${nm(c.id)}」 ${sname(c.song)}`)}</p>`:""}
   ${tag?`<p class="result ${res==="反效果"?"bad":"ok"}">${tag}</p>`:""}
   <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${cl(x)}</span><span class="mono muted">${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
   <button class="btn primary" id="n">${overflow().length?"有隊伍滿五人了":(S.i>=PUB.length?"組隊完成":"下一位")}</button>`;
@@ -512,8 +522,8 @@ function duet(atk,def,a,d,sg){
   S.pkPicks.push({round:S.pkN+1,atk,def,a,d,song:sg.song,byYou:atk==="你"});
   app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN+1} · ${cl(atk)} 攻 ${cl(def)}</p><h2>${fullnm(a)} vs ${fullnm(d)}</h2>
   <p class="small muted">題目：《${sname(sg.song)}》—— ${sg.dim}，${sg.note}。${atk==="你"?"你選的。":cl(atk)+"選的。"}</p>
-  <p class="mono small" style="color:var(--amber)">${nm(a)}</p><audio controls src="${clip(a,sg.key)}"></audio>
-  <p class="mono small" style="color:var(--cyan)">${nm(d)}</p><audio controls src="${clip(d,sg.key)}"></audio>
+  <p class="mono small" style="color:var(--amber)">${nm(a)}${dl(a,sg.key,`海選 PK ${RNAME[a]}「${nm(a)}」 ${sname(sg.song)}`)}</p><audio controls src="${clip(a,sg.key)}"></audio>
+  <p class="mono small" style="color:var(--cyan)">${nm(d)}${dl(d,sg.key,`海選 PK ${RNAME[d]}「${nm(d)}」 ${sname(sg.song)}`)}</p><audio controls src="${clip(d,sg.key)}"></audio>
   ${lyricBox()}
   <button class="btn" id="both">兩個一起播（合唱）</button>
   <p class="small muted">${judgeNote}</p>
@@ -628,7 +638,7 @@ function night(){
   slots.forEach((id,ix)=>{
     const p=PUB.find(x=>x.id===id), ok=hasClip(id,'night');
     const card=el(`<div class="card">
-      <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">《${sname(p.night)}》${ok?"":"（音檔還沒渲染）"}</span></span><span class="mono muted" id="r${ix}">—</span></div>
+      <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">《${sname(p.night)}》${ok?"":"（音檔還沒渲染）"}</span>${dl(id,"night",`海選 決選之夜 ${LABELS[ix]} ${sname(p.night)}`)}</span><span class="mono muted" id="r${ix}">—</span></div>
       ${ok?`<audio controls src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的決選之夜音檔還沒做好，只能憑前面幾關的印象排。</p>`}
       ${lyricBox()}
       <button class="btn" data-ix="${ix}">選 ${LABELS[ix]}</button>
@@ -706,7 +716,7 @@ function finals(){
   saveGame("finals");
   const id=list[fi];
   app.innerHTML=`<p class="eyebrow">決賽 ${fi+1} / ${list.length}</p><h2>${fullnm(id)}</h2>
-  <p class="small muted mono">${cl(teamOf(id))}</p>
+  <p class="small muted mono">${cl(teamOf(id))}${dl(id,"final",`海選 決賽 ${RNAME[id]}「${nm(id)}」 ${sname("05_會客時間")}`)}</p>
   <audio controls src="${clip(id,'final')}"></audio>
   ${lyricBox()}
   <div class="card"><label class="small">你給：<b id="v" class="mono">7</b></label>
@@ -784,6 +794,22 @@ async function report(){
 
   <div class="card"><div class="rowline"><span>冠軍</span><span class="mono">${champ?fullnm(champ.id)+"（"+cl(teamOf(champ.id))+"）":"—"}</span></div></div>
   ${S.events.length?`<div class="card"><h2 style="font-size:18px">發生過的事</h2>${S.events.map(e=>`<p class="small" style="margin:6px 0">${e}</p>`).join("")}</div>`:""}
+  <div class="card"><h2 style="font-size:18px">把歌帶走</h2>
+    <p class="small muted" style="margin:0 0 12px">十六個人今晚唱過的每一首，都在這裡。</p>
+    ${PUB.map(pp=>{
+      const st=[["blind","盲選",sname(pp.song)],
+                ["pk_04","PK","繞路"],["pk_01","PK","風向"],["pk_03","PK","定影"],
+                ["night","決選之夜",sname(pp.night)],["final","決賽","會客時間"]]
+        .filter(x=>hasClip(pp.id,x[0]));
+      if(!st.length) return "";
+      return `<div class="rowline" style="align-items:flex-start"><span style="min-width:170px">${fullnm(pp.id)}</span>
+        <span class="dlrow" style="text-align:right">${st.map(x=>
+          dl(pp.id,x[0],`海選 ${x[1]} ${RNAME[pp.id]}「${nm(pp.id)}」 ${x[2]}`)
+            .replace(">⬇ 下載<",`>⬇ ${x[1]}《${x[2]}》<`)
+        ).join("")}</span></div>`;
+    }).join("")}
+    <p class="small muted" style="margin:12px 0 0">${champ?`冠軍 ${fullnm(champ.id)} 的決賽那首，值得留著。`:""}</p>
+  </div>
   <button class="btn primary" id="again">再玩一次</button>
   <p class="small muted">同一批人、同一批歌。變的只有你。</p>`;
   document.getElementById("again").onclick=()=>{clearSave();resetState();intro()};
