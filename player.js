@@ -53,15 +53,25 @@ const REC = (() => {
     r.onsuccess = () => { db = r.result; res(db) };
     r.onerror = () => rej(r.error);
   });
+  const mem = {};                       // 存不進去（無痕模式）就先放記憶體，至少這一局能玩完
   return {
-    async put(k, blob) { const d = await open(); return new Promise((res, rej) => {
-      const t = d.transaction("takes", "readwrite"); t.objectStore("takes").put(blob, k);
-      t.oncomplete = res; t.onerror = () => rej(t.error) }) },
-    async get(k) { const d = await open(); return new Promise((res, rej) => {
-      const q = d.transaction("takes", "readonly").objectStore("takes").get(k);
-      q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error) }) },
-    async wipe() { const d = await open(); return new Promise(res => {
-      const t = d.transaction("takes", "readwrite"); t.objectStore("takes").clear(); t.oncomplete = res }) }
+    async put(k, blob) { mem[k] = blob;
+      try { const d = await open(); await new Promise((res, rej) => {
+        const t = d.transaction("takes", "readwrite"); t.objectStore("takes").put(blob, k);
+        t.oncomplete = res; t.onerror = () => rej(t.error) }) } catch (e) { REC.blocked = true } },
+    async get(k) { try { const d = await open(); return await new Promise((res, rej) => {
+        const q = d.transaction("takes", "readonly").objectStore("takes").get(k);
+        q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error) }) }
+      catch (e) { REC.blocked = true; return mem[k] || null } },
+    async keys() { const out = new Set(Object.keys(mem));
+      try { const d = await open(); const ks = await new Promise((res, rej) => {
+        const q = d.transaction("takes", "readonly").objectStore("takes").getAllKeys();
+        q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error) });
+        ks.forEach(k => out.add(k)) } catch (e) {}
+      return [...out] },
+    async wipe() { for (const k of Object.keys(mem)) delete mem[k];
+      try { const d = await open(); await new Promise(res => {
+        const t = d.transaction("takes", "readwrite"); t.objectStore("takes").clear(); t.oncomplete = res }) } catch (e) {} }
   };
 })();
 const takeURLs = {};
@@ -242,6 +252,21 @@ function envFlux(pcm) {
 }
 /* 脈動清晰度：起音強度的自相關。在 0.25~2 秒之間找最強的週期。
    拍子鬆一點沒關係，只要「有一個律動一直在」就抓得到。 */
+/* 分成 25 秒一段各量一次，取偏高的那一段（第 75 百分位）。
+   問的是「你在律動的時候律動有多強」，而不是「整段平均起來如何」——
+   不然同一個人同一首歌，抓到前奏或抓到副歌會差到 40 分。 */
+function pulseWindowed(d) {
+  // 25 秒一段；錄得短的話把窗縮小，至少要切得出三段，不然短錄音會被不公平地低估
+  let W = 2500;
+  if (d.length < 3 * W) W = Math.max(1200, Math.floor(d.length / 3));
+  const H = Math.max(1, Math.floor(W / 2));
+  if (d.length < W * 1.5) return pulseClarity(d);
+  const vs = [];
+  for (let a = 0; a + W <= d.length; a += H) vs.push(pulseClarity(d.subarray(a, a + W)));
+  if (!vs.length) return pulseClarity(d);
+  vs.sort((x, y) => x - y);
+  return vs[Math.min(vs.length - 1, Math.floor(vs.length * 0.75))];
+}
 function pulseClarity(d) {
   const n = d.length; if (n < 600) return 0;
   let m = 0; for (const v of d) m += v; m /= n;
@@ -288,8 +313,15 @@ function freePitchScore(notes) {
 }
 /* 律動：脈動清晰度 + 動態對比（該用力的地方有沒有用力） */
 function freeGrooveScore(e, d, notes) {
-  const p = pulseClarity(d);
-  const pulse = cl01((p - 0.035) / 0.145);
+  // 只取第一個音到最後一個音之間，前後的沉默和前奏不要拿來稀釋
+  let seg = d;
+  if (notes.length) {
+    const a = Math.max(0, notes[0].s * 4 - 100);
+    const b = Math.min(d.length, notes[notes.length - 1].e * 4 + 100);
+    if (b - a > 600) seg = d.subarray(a, b);
+  }
+  const p = pulseWindowed(seg);
+  const pulse = cl01((p - 0.06) / 0.17);      // 白噪音 0.06、拍子很鬆 0.09、唱得穩 0.20 以上
   let dyn = 0;
   if (notes.length >= 10) {
     const pk = notes.map(o => { let m = 0;
@@ -297,9 +329,9 @@ function freeGrooveScore(e, d, notes) {
       return 20 * Math.log10(m + 1e-6) });
     const q = pk.slice().sort((a, b) => a - b);
     const db = q[Math.floor(q.length * 0.9)] - q[Math.floor(q.length * 0.1)];
-    dyn = db <= 1.2 ? 0 : db <= 6 ? (db - 1.2) / 4.8 : db <= 16 ? 1 : cl01(1 - (db - 16) / 10);
+    dyn = db <= 1.5 ? 0 : db <= 5 ? (db - 1.5) / 3.5 : db <= 22 ? 1 : cl01(1 - (db - 22) / 10);
   }
-  return { score: Math.round(100 * (0.65 * pulse + 0.35 * dyn)), pulse: p };
+  return { score: Math.round(100 * (0.55 * pulse + 0.45 * dyn)), pulse: p };
 }
 /* 穩：長音（0.4 秒以上）撐不撐得住。音高會不會一路漂掉、音量會不會忽大忽小。
    顫音不算漂——漂是拿前三分之一跟後三分之一比。 */
@@ -366,12 +398,172 @@ function playerScore(res, heard, order) {
 
 /* ---------- 學員狀態 ---------- */
 const PM = { on: false, free: false, me: null, name: "", home: "", say: "", voice: "男",
-             song: {}, res: {}, mhash: {}, key: {}, title: {}, last: null };
+             song: {}, res: {}, mhash: {}, key: {}, title: {}, log: [], last: null };
 function pmReset() { PM.on = false; PM.free = false; PM.me = null; PM.name = ""; PM.home = ""; PM.say = ""; PM.voice = "男";
-  PM.song = {}; PM.res = {}; PM.mhash = {}; PM.key = {}; PM.title = {}; PM.last = null; PM.out = null }
+  PM.song = {}; PM.res = {}; PM.mhash = {}; PM.key = {}; PM.title = {}; PM.log = [];
+  PM.last = null; PM.out = null; PM.outAlive = null; PM.nightPos = null; PM.freeChamp = false; PM.coach = null }
 function pmSave() { return { on: PM.on, free: PM.free, me: PM.me, name: PM.name, home: PM.home, say: PM.say,
-  voice: PM.voice, song: PM.song, res: PM.res, mhash: PM.mhash, key: PM.key, title: PM.title, out: PM.out || null } }
+  voice: PM.voice, song: PM.song, res: PM.res, mhash: PM.mhash, key: PM.key, title: PM.title,
+  log: PM.log || [], out: PM.out || null, outAlive: PM.outAlive || null, nightPos: PM.nightPos || null,
+  coach: PM.coach || null } }
 function pmLoad(o) { if (o) Object.assign(PM, o) }
+
+/* ==========================================================================
+   進度檔：把遊戲進度「和你錄的每一段」包成一個檔案
+   一次唱完四五首不實際，所以要能存下來、換裝置、隔天再繼續。
+   格式：HX1\n<JSON 標頭>\n<第一段錄音的位元組><第二段>…
+   （不用 base64，檔案小三分之一，讀寫也快）
+   ========================================================================== */
+const PACK_MAGIC = "HX1";
+async function buildPack(save) {
+  const ks = (await REC.keys()).filter(k => k.indexOf("take_") === 0);
+  const blobs = [], meta = [];
+  for (const k of ks) {
+    const b = await REC.get(k);
+    if (!b || !b.size) continue;
+    blobs.push(b); meta.push({ k, type: b.type || "audio/webm", len: b.size });
+  }
+  const head = PACK_MAGIC + "\n" + JSON.stringify({ v: 1, save, takes: meta }) + "\n";
+  return { blob: new Blob([head, ...blobs], { type: "application/octet-stream" }),
+           n: meta.length, bytes: meta.reduce((a, x) => a + x.len, 0) };
+}
+async function readPack(file) {
+  const buf = await file.arrayBuffer(), u8 = new Uint8Array(buf);
+  // 前面兩個換行之間是標頭
+  let n1 = -1, n2 = -1;
+  for (let i = 0; i < Math.min(u8.length, 4 << 20); i++) {
+    if (u8[i] === 10) { if (n1 < 0) n1 = i; else { n2 = i; break } }
+  }
+  if (n1 < 0 || n2 < 0) throw new Error("格式不對");
+  const magic = new TextDecoder().decode(u8.subarray(0, n1));
+  if (magic.trim() !== PACK_MAGIC) throw new Error("格式不對");
+  const head = JSON.parse(new TextDecoder().decode(u8.subarray(n1 + 1, n2)));
+  let off = n2 + 1;
+  for (const t of head.takes || []) {
+    await REC.put(t.k, new Blob([u8.subarray(off, off + t.len)], { type: t.type }));
+    delete takeURLs[t.k.slice(5)];
+    takeExt[t.k.slice(5)] = /mp4|m4a/.test(t.type) ? "m4a" : /ogg/.test(t.type) ? "ogg" : "webm";
+    off += t.len;
+  }
+  return head;
+}
+const humanMB = b => b < 1048576 ? Math.round(b / 1024) + " KB" : (b / 1048576).toFixed(1) + " MB";
+
+/* ---------- 結業報告用的紀錄 ---------- */
+/* 每一關發生了什麼，結算的時候一關一關講回來 */
+function plog(st, ok, note) {
+  PM.log = PM.log || [];
+  const c = teamOf(PM.me); if (c) PM.coach = c;     // 記住當下的導師，出局後才找得回來
+  if (PM.log.some(x => x.st === st)) return;
+  const r = PM.res[st];
+  PM.log.push({ st, ok, note, Q: r ? r.Q : null, bar: PM.free ? barOf(st) : null,
+                title: PM.free ? (PM.title[st] || "自選曲") : sname(PM.song[st] || (st === "final" ? "05_會客時間" : st)) });
+}
+const STAGENAME = { blind: "盲選", night: "決選之夜", final: "決賽",
+                    pk_04: "PK 第一夜", pk_01: "PK 第一夜", pk_03: "PK 第一夜" };
+/* 四項裡面哪一項最有搶分空間：還差多少 × 佔多少權重 */
+const FREEW = { pitch: 0.40, groove: 0.25, steady: 0.15, body: 0.20 };
+const REFW  = { pitch: 0.50, rhythm: 0.30, complete: 0.20 };
+const METNAME = { pitch: "音準", groove: "律動", steady: "穩", body: "完成度",
+                  rhythm: "節奏", complete: "完整度" };
+const ADVICE = {
+  pitch: ["拿手機的調音 app 或鋼琴，把副歌一個音一個音對過一遍。不要用聽感，用眼睛看它準不準。",
+          "先確認這首歌的 key 適不適合你。太高會逼你用喊的，一喊音就飛了。",
+          "慢速跟著唱。快的時候聽不出來的偏差，放慢就無所不在。"],
+  groove: ["開節拍器練。不用整首，先把副歌四小節踩準就好。",
+           "一首歌裡至少要有一句是你刻意收小聲的。全程同一個力氣，聽的人會累。",
+           "重音落在字上，不是落在拍上。念一次歌詞，看哪個字自然會重。"],
+  steady: ["長音練習：同一個音撐八拍，音量不變、音高不動。撐不住就是氣不夠。",
+           "腹式呼吸。手放肚子上，吸氣時肚子要出去，不是肩膀往上。",
+           "尾音不要放掉。你每次都在最後半秒鬆手，那半秒最難聽。"],
+  body: ["把整首唱完。唱一半的表演在評分上就是一半。",
+         "高的低的都要碰。只在舒服的音域裡繞，聽起來就是沒事發生。",
+         "確認伴奏有在跑、麥克風有收到。有大段沒出聲的話先檢查這兩件事。"],
+  rhythm: ["用練歌室點歌詞跳到那一句，反覆練進歌點。",
+           "把速度調到 0.75×，先跟準了再回到原速。",
+           "起唱點比你想的早半拍。多數人是慢進，不是快進。"],
+  complete: ["把整首唱完。中間停掉的地方會直接算成沒唱。",
+             "確認伴奏有在跑、麥克風有收到。",
+             "唱不動的地方用練歌室降 key，不要硬撐到後面整段崩掉。"]
+};
+function weakReport(res, free) {
+  const W = free ? FREEW : REFW, keys = Object.keys(W);
+  const avg = k => Math.round(res.reduce((a, r) => a + (r[k] || 0), 0) / res.length);
+  const rows = keys.map(k => ({ k, v: avg(k), gain: (100 - avg(k)) * W[k] }))
+                   .sort((a, b) => b.gain - a.gain);
+  return rows;
+}
+function nextBarGap(res, free) {
+  if (!free || !res.length) return null;
+  const best = Math.max(...res.map(r => r.Q));
+  const order = [["blind", FREEBAR.blind], ["pk", FREEBAR.pk], ["night", FREEBAR.night], ["final", FREEBAR.final]];
+  for (const [st, b] of order) if (best < b) return { st, bar: b, gap: b - best, best };
+  return { st: "final", bar: FREEBAR.final, gap: 0, best };
+}
+
+/* ---------- 結業報告的四個區塊 ---------- */
+const MAPW = { rhythm: "groove", complete: "body", pitch: "pitch", groove: "groove", steady: "steady", body: "body" };
+function placeCard(won, alive_, finRank, finN) {
+  let head, sub;
+  if (won) { head = `冠軍`; sub = `十六個人裡，最後站著的是你。`; }
+  else if (alive_) { head = `決賽第 ${finRank} 名 / ${finN} 人`; sub = `十六個人一路砍到六個，你在裡面。`; }
+  else {
+    const o = PM.out || {}, left = PM.outAlive;
+    if (o.stage === "盲選") { head = "止步盲選"; sub = "沒有導師轉身，你連隊都沒有進。"; }
+    else if (o.stage === "決選之夜") { head = `決選之夜第 ${PM.nightPos || "—"} 名 / 8 人`; sub = "八個人裡淘汰兩個，你是其中一個。"; }
+    else if (o.stage === "釋出") { head = `十六強中途出局`; sub = left != null ? `你走的時候場上還有 ${left} 個人——你贏過 ${Math.max(0, 15 - left)} 個。` : ""; }
+    else { head = `PK 第一夜出局`; sub = left != null ? `你走的時候場上還有 ${left} 個人——你贏過 ${Math.max(0, 15 - left)} 個。` : ""; }
+  }
+  return `<div class="card" style="border-color:var(--amber)">
+    <p class="eyebrow" style="margin:0 0 6px">最終名次</p>
+    <h2 style="font-size:26px;margin:0 0 6px;color:var(--amber)">${head}</h2>
+    <p class="small muted" style="margin:0">${sub}</p></div>`;
+}
+function journeyCard() {
+  const L = PM.log || [];
+  if (!L.length) return "";
+  return `<div class="card"><h2 style="font-size:18px">一關一關走過來</h2>
+    ${L.map(x => `<div class="rowline" style="align-items:flex-start">
+      <span><b>${STAGENAME[x.st] || x.st}</b>　<span class="small muted">《${x.title}》</span><br>
+        <span class="small muted">${x.note || ""}</span></span>
+      <span class="mono ${x.ok ? "pos" : "neg"}" style="white-space:nowrap">${x.Q != null ? x.Q : "—"}${x.bar ? `<span class="muted small"> / ${x.bar}</span>` : ""}</span>
+    </div>`).join("")}
+  </div>`;
+}
+function adviceCard(res, free) {
+  if (!res.length) return "";
+  const rows = weakReport(res, free);
+  const worst = rows[0], gapInfo = nextBarGap(res, free);
+  const need = gapInfo && gapInfo.gap > 0
+    ? Math.ceil(gapInfo.gap / (free ? FREEW[worst.k] : REFW[worst.k]))
+    : 0;
+  const tips = ADVICE[worst.k] || [];
+  return `<div class="card"><h2 style="font-size:18px">哪裡要再加強</h2>
+    <table><thead><tr><th></th><th class="num">平均</th><th class="num">最好</th><th class="num">最差</th><th class="num">還能搶</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const vs = res.map(x => x[r.k] || 0);
+      return `<tr><td>${METNAME[r.k]}</td><td class="num mono">${r.v}</td>
+        <td class="num mono muted">${Math.max(...vs)}</td><td class="num mono muted">${Math.min(...vs)}</td>
+        <td class="num mono ${r === rows[0] ? "neg" : "muted"}">${r.gain.toFixed(1)} 分</td></tr>`;
+    }).join("")}</tbody></table>
+    <p class="small muted" style="margin:12px 0 6px">「還能搶」＝這一項離滿分還差多少 × 它佔的權重。<b class="neg">${METNAME[worst.k]}</b>是你最大的空間。</p>
+    ${gapInfo && gapInfo.gap > 0 ? `<p class="small" style="color:var(--amber);margin:0 0 10px">
+      你最好的一次 ${gapInfo.best} 分，離${STAGENAME[gapInfo.st] || gapInfo.st}的 ${gapInfo.bar} 分還差 ${gapInfo.gap} 分——
+      只要把${METNAME[worst.k]}從 ${worst.v} 拉到 ${Math.min(100, worst.v + need)} 就夠了。</p>` : ""}
+    ${tips.slice(0, 2).map(t => `<p class="small" style="margin:0 0 8px">・${t}</p>`).join("")}
+  </div>`;
+}
+function coachClosing(res, free) {
+  const c = teamOf(PM.me) || PM.coach;
+  if (!c || !COACHTIP[c] || !res.length) return "";
+  const rows = weakReport(res, free);
+  const k = MAPW[rows[0].k] || "pitch";
+  const T = COACHTIP[c];
+  return `<div class="card" style="border-color:var(--cyan)">
+    <p class="eyebrow" style="margin:0 0 8px;color:var(--cyan)">賽後 · ${cl(c)}</p>
+    <p class="small" style="margin:0 0 8px">「${pick1(T[k])}」</p>
+    <p class="small muted" style="margin:0">${T.tag}</p></div>`;
+}
 
 /* ---------- 建角色 ---------- */
 function playerSetup(free) {
@@ -421,6 +613,16 @@ function playerSetup(free) {
   };
 }
 async function micCheck() {
+  if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    app.innerHTML = `<p class="eyebrow">學員模式</p><h2>這個瀏覽器不能錄音</h2>
+    <p class="muted">學員模式需要瀏覽器支援錄音功能，這一台不支援。</p>
+    <p class="small muted">iPhone 請用 Safari、Android 請用 Chrome，而且網址要是 https 開頭。用 App 內建的瀏覽器（LINE、FB 開的那種）常常會不行，用「在瀏覽器開啟」試試看。</p>
+    <button class="btn primary" id="coach">改玩導師模式</button>
+    <button class="btn" id="back">回開場</button>`;
+    document.getElementById("coach").onclick = intro;
+    document.getElementById("back").onclick = intro;
+    return;
+  }
   app.innerHTML = `<p class="eyebrow">學員模式 · 麥克風</p><h2>先讓瀏覽器問你要不要開麥克風</h2>
   <p class="muted">按下去之後，瀏覽器會跳出詢問。要按「允許」才能錄。</p>
   <button class="btn primary" id="ask">開麥克風</button>
@@ -562,6 +764,40 @@ function setSpeed(au,sp){
   try{ au.preservesPitch=true; au.mozPreservesPitch=true; au.webkitPreservesPitch=true; }catch(e){}
 }
 
+/* ---------- 錄音時的即時音量表 ---------- */
+/* 沒有這個東西，你要在「不知道麥克風有沒有收到聲音」的狀態下一次定生死 */
+function startMeter(stream, box) {
+  let raf = null, ac = null, peak = 0, clip = 0, frames = 0, loud = 0;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ac.createMediaStreamSource(stream), an = ac.createAnalyser();
+    an.fftSize = 1024; src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const bar = box && box.querySelector("i");
+    const tick = () => {
+      an.getFloatTimeDomainData(buf);
+      let m = 0; for (const v of buf) { const a = Math.abs(v); if (a > m) m = a }
+      frames++; if (m > peak) peak = m; if (m > 0.985) clip++; if (m > 0.04) loud++;
+      if (bar) { bar.style.width = Math.min(100, m * 140) + "%"; bar.className = m > 0.95 ? "hot" : "" }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {}
+  return {
+    stop() { if (raf) cancelAnimationFrame(raf); if (ac) try { ac.close() } catch (e) {}
+      return { peak, clipRate: frames ? clip / frames : 0, loudRate: frames ? loud / frames : 0 } }
+  };
+}
+/* 錄完之後，如果音量明顯有問題就直說 */
+function levelWarn(lv) {
+  if (!lv) return "";
+  if (lv.peak < 0.02) return "<b>幾乎沒有收到聲音。</b>檢查麥克風權限、有沒有選到對的裝置，或是離麥克風近一點。";
+  if (lv.loudRate < 0.08) return "收到的聲音很少——大部分時間是安靜的。是不是離麥克風太遠、或中間停很久？";
+  if (lv.clipRate > 0.02) return "<b>音量爆掉了。</b>離麥克風遠一點，或把輸入音量調小。破音會讓音準判讀失準。";
+  if (lv.peak < 0.10) return "音量偏小。離麥克風近一點分數會更準。";
+  return "";
+}
+
 /* ---------- 卡拉 OK：大字當前句 + 下面一整份歌詞，點哪一句就跳到哪 ---------- */
 const _kara = new WeakMap();
 function attachKaraoke(au, hash, box, fullBox) {
@@ -629,6 +865,16 @@ function passHint(Q) {
   return `贏過大約 ${b}% 的 AI 選手。這樣上台會被淘汰，再多練幾次。`;
 }
 
+/* 一次唱完四五首不實際，每個要開口的地方都留一個出口 */
+function pauseBtn() {
+  return `<button class="btn" id="pausebtn" style="margin-top:10px">先存起來，之後再繼續</button>`;
+}
+function bindPause() {
+  const b = document.getElementById("pausebtn");
+  if (!b) return;
+  b.onclick = () => { try { saveGame(LASTPHASE) } catch (e) {} intro() };
+}
+
 /* ---------- 練歌室 ---------- */
 /* opt = {stage, songKey, eyebrow, note, onGo, free} */
 function practiceRoom(opt) {
@@ -636,6 +882,7 @@ function practiceRoom(opt) {
   const st = { g: hasVoice(k, PM.voice) ? PM.voice : (hasVoice(k,"男") ? "男" : "女"),
                key: 0, speed: 1, guide: "bk" };
   let mr = null, chunks = [], stream = null, official = false, chain = null;
+  let meter = null, lastLevel = null, recStart = 0, aborted = false;
 
   const hash = () => mhash(k, st.g);
   const srcURL = () => st.guide === "bk" ? BKURL(hash()) : MIXURL(hash());
@@ -653,16 +900,18 @@ function practiceRoom(opt) {
   <div class="lyrall" id="full"></div>
   <p class="small muted" style="margin:0 0 14px">點歌詞任何一句就會跳到那裡——想單練副歌或第二段主歌，直接點下去。上面那條也可以拖著找位置。</p>
   <div class="card" id="ctl">
-    <div class="rowline"><span class="small">導唱聲線</span><span id="gbtns"></span></div>
-    <div class="rowline"><span class="small">聽什麼</span><span id="vbtns"></span></div>
-    <div class="rowline"><span class="small">Key <b class="mono" id="kv">原 key</b></span><span id="kbtns"></span></div>
-    <div class="rowline"><span class="small">速度 <b class="mono" id="sv">1×</b></span><span id="sbtns"></span></div>
+    <div class="ctlrow"><span class="lab">導唱聲線</span><span class="chips" id="gbtns"></span></div>
+    <div class="ctlrow"><span class="lab">聽什麼</span><span class="chips" id="vbtns"></span></div>
+    <div class="ctlrow"><span class="lab">Key　<b class="mono" id="kv">原 key</b></span><span class="chips" id="kbtns"></span></div>
+    <div class="ctlrow"><span class="lab">速度　<b class="mono" id="sv">1×</b></span><span class="chips" id="sbtns"></span></div>
     <p class="small muted" id="cnote" style="margin:10px 0 0"></p>
   </div>
   <div class="card">
     <button class="btn" id="only">播放（自己跟著唱）</button>
     <button class="btn" id="rec">開始錄${FREE ? "" : "（試唱，可以重來）"}</button>
     <button class="btn" id="stop" disabled>停</button>
+    <div class="meter" id="mtr"><i></i></div>
+    <p class="small muted" id="mnote" style="margin:0">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
   </div>
   <div id="sc"></div>
   ${FREE ? `<div class="card">
@@ -674,7 +923,8 @@ function practiceRoom(opt) {
     正式那一次會自動切回<b>只有伴奏、原速</b>，Key 會照你現在選的。</p>
     <button class="btn primary" id="go">開始比賽</button>
   </div>`}
-  <p class="small muted">耳機建議戴上，不然伴奏會被錄進去，音準會被拉掉。</p>`;
+  <p class="small muted">耳機建議戴上，不然伴奏會被錄進去，音準會被拉掉。</p>
+  ${FREE ? "" : pauseBtn()}`;
 
   const bk = document.getElementById("bk");
   const full = document.getElementById("full");
@@ -699,7 +949,7 @@ function practiceRoom(opt) {
   }
 
   const chip = (box, label, on, dis, fn) => {
-    const b = el(`<button class="btn" style="padding:6px 12px;margin:0 0 0 6px;font-size:13px${on?";border-color:var(--amber);color:var(--amber)":""}"${dis?" disabled":""}>${label}</button>`);
+    const b = el(`<button class="btn" style="padding:7px 14px;font-size:13px${on?";border-color:var(--amber);color:var(--amber)":""}"${dis?" disabled":""}>${label}</button>`);
     if (!dis) b.onclick = fn;
     box.appendChild(b); return b;
   };
@@ -730,7 +980,7 @@ function practiceRoom(opt) {
   }
   async function applyKey(){ if(!chain) chain=await attachChain(bk); chain.setKey(st.key) }
 
-  reload(false); paint();
+  reload(false); paint(); bindPause();
 
   const setBusy = b => ["only","rec","go"].forEach(x=>{const e=document.getElementById(x); if(e) e.disabled=b});
   document.getElementById("only").onclick = async e => {
@@ -749,48 +999,78 @@ function practiceRoom(opt) {
     try { await audioCtx().resume() } catch (x) {}
     chain.setKey(st.key); setSpeed(bk, st.speed);
     chunks = []; mr = new MediaRecorder(stream);
+    meter = startMeter(stream, document.getElementById("mtr"));
+    document.getElementById("mtr").classList.add("on");
+    recStart = Date.now(); aborted = false;
     mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data) };
     mr.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
+      lastLevel = meter ? meter.stop() : null; meter = null;
+      const m = document.getElementById("mtr"); if (m) { m.classList.remove("on"); m.querySelector("i").style.width = 0 }
+      if (aborted) { const g2 = id => document.getElementById(id);
+        bk.pause(); setBusy(false);
+        if (g2("stop")) g2("stop").disabled = true;
+        if (g2("pausebtn")) g2("pausebtn").disabled = false;
+        if (g2("rec")) g2("rec").textContent = "開始錄";
+        if (g2("go")) g2("go").textContent = "開始比賽";
+        if (g2("sc")) g2("sc").innerHTML = `<div class="card"><p class="small muted" style="margin:0">這次不算，重來就好。</p></div>`;
+        return }
       await finishTake(new Blob(chunks, { type: chunks[0] ? chunks[0].type : "audio/webm" }));
     };
-    document.getElementById("sc").innerHTML = "";
-    setBusy(true); document.getElementById("stop").disabled = false;
-    document.getElementById("rec").textContent = isOfficial ? "正式錄音中…" : "錄音中…";
-    document.getElementById("only").textContent = "播放（自己跟著唱）";
+    const g = id => document.getElementById(id);
+    if (g("sc")) g("sc").innerHTML = "";
+    setBusy(true); if (g("stop")) g("stop").disabled = false;
+    if (g("pausebtn")) g("pausebtn").disabled = true;    // 錄音中不能中途離開
+    if (g("rec")) g("rec").textContent = isOfficial ? "正式錄音中…" : "錄音中…";
+    if (g("only")) g("only").textContent = "播放（自己跟著唱）";
     bk.currentTime = 0; bk.play(); mr.start();
+    if (isOfficial) {
+      const ab = el(`<button class="btn danger" id="abort" style="margin-top:8px">開頭出狀況，這次不算</button>`);
+      document.getElementById("sc").innerHTML = "";
+      document.getElementById("sc").appendChild(ab);
+      ab.onclick = () => { aborted = true; if (mr && mr.state === "recording") mr.stop() };
+      setTimeout(() => { const e = document.getElementById("abort"); if (e) e.remove() }, 20000);
+    }
     bk.onended = () => { if (mr && mr.state === "recording") mr.stop() };
   };
   const finishTake = async (blob) => {
+    const $ = id => document.getElementById(id);
     bk.pause();
-    document.getElementById("stop").disabled = true;
-    document.getElementById("sc").innerHTML =
+    if ($("stop")) $("stop").disabled = true;
+    if ($("sc")) $("sc").innerHTML =
       `<div class="card"><p class="small" style="margin:0">電腦在聽…<b id="pp" class="mono">0%</b></p></div>`;
     const useKey = st.speed === 1 ? st.key : 0;
     const r = await analyzeTake(blob, hash(), useKey,
-      p => { const e = document.getElementById("pp"); if (e) e.textContent = Math.round(p * 100) + "%" });
+      p => { const e = $("pp"); if (e) e.textContent = Math.round(p * 100) + "%" });
     r.slow = st.speed !== 1;
     PM.last = r;
     if (official) {
       await REC.put("take_" + opt.stage, blob);
       delete takeURLs[opt.stage];
+      takeExt[opt.stage] = /mp4|m4a/.test(blob.type) ? "m4a" : /ogg/.test(blob.type) ? "ogg" : "webm";
       PM.res[opt.stage] = r; PM.song[opt.stage] = k;
       PM.mhash[opt.stage] = hash(); PM.key[opt.stage] = st.key; PM.voice = st.g;
+      saveGame(LASTPHASE);                       // 唱完就存，走人也不會白唱
       const url2 = URL.createObjectURL(blob);
       app.innerHTML = `<p class="eyebrow">${opt.eyebrow}</p><h2>唱完了</h2>
       <p class="muted">《${sname(k)}》・${st.g}聲・${KEYNAME(st.key)}</p>
       ${scoreCard(r)}
+      ${levelWarn(lastLevel)?`<div class="card"><p class="small" style="margin:0;color:var(--amber)">${levelWarn(lastLevel)}</p></div>`:""}
       <div class="card"><p class="small muted" style="margin:0 0 8px">${qNote(r)}<br>${passHint(r.Q)}</p>
         <audio controls src="${url2}"></audio>
         <p class="small muted" style="margin:6px 0 0">這段只有你聽得到。</p></div>
-      <button class="btn primary" id="n">上台</button>`;
+      <button class="btn primary" id="n">上台</button>
+      ${pauseBtn()}`;
       document.getElementById("n").onclick = () => opt.onGo(r);
+      bindPause();
       return;
     }
     setBusy(false);
-    document.getElementById("rec").textContent = "再錄一次";
+    if ($("rec")) $("rec").textContent = "再錄一次";
+    if ($("pausebtn")) $("pausebtn").disabled = false;
     const url = URL.createObjectURL(blob);
-    document.getElementById("sc").innerHTML = `
+    if (!$("sc")) return;
+    $("sc").innerHTML = `
     <div class="card"><h2 style="font-size:18px">電腦怎麼聽你這一次</h2>
       <p class="small muted" style="margin:0 0 10px">${st.g}聲導唱・${KEYNAME(st.key)}・${st.speed}×${st.guide==="mix"?"・原曲帶唱":""}</p>
       ${r.slow?`<p class="small" style="color:var(--amber);margin:0 0 10px">你剛剛是放慢唱的，分數只能當參考。要看真的分數請切回 1×。</p>`:""}
@@ -799,6 +1079,7 @@ function practiceRoom(opt) {
       <div class="rowline"><span>完整度</span><span class="mono ${r.complete>=60?"pos":"neg"}">${r.complete}</span></div>
       <div class="rowline"><span><b>綜合</b></span><span class="mono"><b>${r.Q}</b></span></div>
       <p class="small muted" style="margin:10px 0 0">${qNote(r)}</p>
+      ${levelWarn(lastLevel)?`<p class="small" style="margin:8px 0 0;color:var(--amber)">${levelWarn(lastLevel)}</p>`:""}
       ${r.slow?"":`<p class="small" style="margin:8px 0 0;color:var(--cyan)">${passHint(r.Q)}</p>`}
       <audio controls src="${url}" style="margin-top:10px"></audio>
       <p class="small muted" style="margin:6px 0 0">這段只有你聽得到。</p>
@@ -945,6 +1226,7 @@ function briefFor(stage) {
 function freeRoom(opt) {
   const st = opt.stage, bar = barOf(st);
   let mr = null, chunks = [], stream = null, t0 = 0, tick = null, official = false;
+  let meter = null, lastLevel = null, aborted = false, takeTitle = "";
   app.innerHTML = `<p class="eyebrow">${opt.eyebrow}</p><h2>換你上台</h2>
   <p class="muted">${opt.note || ""}</p>
   ${briefFor(st)}
@@ -959,50 +1241,90 @@ function freeRoom(opt) {
     <input id="tt" maxlength="24" placeholder="打上歌名，之後結算會用到" style="width:100%;box-sizing:border-box;background:#12101a;border:1px solid var(--line);color:var(--paper);padding:10px;font-family:var(--sans);font-size:15px;margin:6px 0 0">
   </div>
   <div class="card">
-    <p class="mono" id="clk" style="font-size:34px;margin:0 0 10px;color:var(--amber)">0:00</p>
-    <button class="btn" id="rec">試唱一次（不算數）</button>
-    <button class="btn primary" id="go">正式上台</button>
+    <p class="mono" id="clk" style="font-size:34px;margin:0 0 2px;color:var(--amber)">0:00</p>
+    <p class="small muted" style="margin:0 0 10px">唱滿 1:00 完成度才會滿分・不到 0:30 總分會被打折</p>
+    <div class="meter" id="mtr"><i></i></div>
+    <p class="small muted" id="mnote" style="margin:0 0 12px">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
+    <button class="btn primary" id="rec">先試唱一次（不算數）</button>
     <button class="btn" id="stop" disabled>唱完了</button>
+    <div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:14px">
+      <p class="small muted" style="margin:0 0 8px">試唱過、覺得可以了再上台。<b>正式只錄一次。</b></p>
+      <button class="btn" id="go" style="border-color:var(--amber);color:var(--amber)">正式上台</button>
+    </div>
   </div>
   <div id="sc"></div>
-  <p class="small muted">唱滿 60 秒完成度才會滿分，<b>唱不到 30 秒總分會被打折</b>。戴耳機、離麥克風近一點會比較準。</p>`;
+  <p class="small muted">戴耳機、離麥克風近一點會比較準。</p>
+  ${pauseBtn()}`;
   const start = async (isOfficial) => {
     official = isOfficial;
+    const ti = document.getElementById("tt");
+    takeTitle = ti ? (ti.value || "").trim() : "";        // 先抓起來，之後畫面換掉也不影響
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }) }
     catch (e) { alert("拿不到麥克風。"); return }
     chunks = []; mr = new MediaRecorder(stream);
+    meter = startMeter(stream, document.getElementById("mtr"));
+    document.getElementById("mtr").classList.add("on");
+    aborted = false;
     mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data) };
     mr.onstop = async () => { clearInterval(tick); stream.getTracks().forEach(t => t.stop());
+      lastLevel = meter ? meter.stop() : null; meter = null;
+      const m = document.getElementById("mtr"); if (m) { m.classList.remove("on"); m.querySelector("i").style.width = 0 }
+      if (aborted) {
+        const g = id => document.getElementById(id);
+        ["rec", "go"].forEach(x => { if (g(x)) g(x).disabled = false });
+        if (g("rec")) g("rec").textContent = "先試唱一次（不算數）";
+        if (g("go")) g("go").textContent = "正式上台";
+        if (g("stop")) g("stop").disabled = true;
+        if (g("pausebtn")) g("pausebtn").disabled = false;
+        if (g("clk")) g("clk").textContent = "0:00";
+        if (g("sc")) g("sc").innerHTML = `<div class="card"><p class="small muted" style="margin:0">這次不算，重來就好。</p></div>`;
+        return;
+      }
       await done(new Blob(chunks, { type: chunks[0] ? chunks[0].type : "audio/webm" })) };
-    ["rec", "go"].forEach(x => document.getElementById(x).disabled = true);
-    document.getElementById(isOfficial ? "go" : "rec").textContent = isOfficial ? "正式錄音中…" : "錄音中…";
-    document.getElementById("stop").disabled = false;
-    document.getElementById("sc").innerHTML = "";
+    ["rec", "go"].forEach(x => { const e = document.getElementById(x); if (e) e.disabled = true });
+    const lbl = document.getElementById(isOfficial ? "go" : "rec");
+    if (lbl) lbl.textContent = isOfficial ? "正式錄音中…" : "錄音中…";
+    const sb = document.getElementById("stop"); if (sb) sb.disabled = false;
+    const pb = document.getElementById("pausebtn"); if (pb) pb.disabled = true;   // 錄音中不能中途離開
+    const scb = document.getElementById("sc"); if (scb) scb.innerHTML = "";
+    if (isOfficial) {
+      const ab = el(`<button class="btn danger" id="abort">開頭出狀況，這次不算</button>`);
+      document.getElementById("sc").appendChild(ab);
+      ab.onclick = () => { aborted = true; if (mr && mr.state === "recording") mr.stop() };
+      setTimeout(() => { const e = document.getElementById("abort"); if (e) e.remove() }, 20000);
+    }
     t0 = Date.now(); mr.start();
     tick = setInterval(() => { const e = document.getElementById("clk");
       if (e) e.textContent = mmss((Date.now() - t0) / 1000) }, 200);
   };
   const done = async (blob) => {
-    document.getElementById("stop").disabled = true;
-    document.getElementById("sc").innerHTML = `<div class="card"><p class="small" style="margin:0">電腦在聽…<b id="pp" class="mono">0%</b></p></div>`;
-    const r = await freeAnalyze(blob, p => { const e = document.getElementById("pp"); if (e) e.textContent = Math.round(p * 100) + "%" });
+    const $ = id => document.getElementById(id);
+    if ($("stop")) $("stop").disabled = true;
+    if ($("sc")) $("sc").innerHTML = `<div class="card"><p class="small" style="margin:0">電腦在聽…<b id="pp" class="mono">0%</b></p></div>`;
+    const r = await freeAnalyze(blob, p => { const e = $("pp"); if (e) e.textContent = Math.round(p * 100) + "%" });
     PM.last = r;
-    const title = (document.getElementById("tt").value || "").trim() || "自選曲";
+    const title = takeTitle || "自選曲";
     if (official) {
       await REC.put("take_" + st, blob); delete takeURLs[st];
+      takeExt[st] = /mp4|m4a/.test(blob.type) ? "m4a" : /ogg/.test(blob.type) ? "ogg" : "webm";
       PM.res[st] = r; PM.title[st] = title;
+      saveGame(LASTPHASE);                       // 唱完就存，走人也不會白唱
       const url2 = URL.createObjectURL(blob);
       app.innerHTML = `<p class="eyebrow">${opt.eyebrow}</p><h2>唱完了</h2>
       <p class="muted">《${title}》</p>
-      ${freeCard(r, st, url2, false)}
-      <button class="btn primary" id="n">上台</button>`;
+      ${freeCard(r, st, url2, false, lastLevel)}
+      <button class="btn primary" id="n">上台</button>
+      ${pauseBtn()}`;
       document.getElementById("n").onclick = () => opt.onGo(r);
+      bindPause();
       return;
     }
-    ["rec", "go"].forEach(x => document.getElementById(x).disabled = false);
-    document.getElementById("rec").textContent = "再試一次";
+    ["rec", "go"].forEach(x => { if ($(x)) $(x).disabled = false });
+    if ($("rec")) { $("rec").textContent = "再試一次"; $("rec").classList.remove("primary") }
+    if ($("go")) $("go").classList.add("primary");            // 試唱過了，主要動作換成上台
+    if ($("pausebtn")) $("pausebtn").disabled = false;
     const url = URL.createObjectURL(blob);
-    document.getElementById("sc").innerHTML = freeCard(r, st, url, true);
+    if ($("sc")) $("sc").innerHTML = freeCard(r, st, url, true, lastLevel);
   };
   document.getElementById("rec").onclick = () => start(false);
   document.getElementById("stop").onclick = () => { if (mr && mr.state === "recording") mr.stop() };
@@ -1010,9 +1332,10 @@ function freeRoom(opt) {
     if (!confirm(`正式上台。只錄一次，唱完就送出，不能重來。要開始嗎？`)) return;
     start(true);
   };
+  bindPause();
 }
-function freeCard(r, st, url, practice) {
-  const bar = barOf(st), pass = r.Q >= bar;
+function freeCard(r, st, url, practice, lv) {
+  const bar = barOf(st), pass = r.Q >= bar, lw = levelWarn(lv);
   return `<div class="card"><h2 style="font-size:18px">電腦怎麼聽你${practice ? "這一次" : ""}</h2>
     <div class="rowline"><span>音準<span class="small muted">　音有沒有落在半音格上</span></span><span class="mono ${r.pitch>=55?"pos":"neg"}">${r.pitch}</span></div>
     <div class="rowline"><span>律動<span class="small muted">　脈動穩不穩、該用力有沒有用力</span></span><span class="mono ${r.groove>=60?"pos":"neg"}">${r.groove}</span></div>
@@ -1021,6 +1344,7 @@ function freeCard(r, st, url, practice) {
     <div class="rowline"><span><b>綜合</b>　<span class="small muted">門檻 ${bar}</span></span><span class="mono" style="font-size:22px"><b class="${pass?"pos":"neg"}">${r.Q}</b></span></div>
     ${r.short?`<p class="small" style="color:var(--amber);margin:10px 0 0">只唱了 ${r.sec} 秒，不到 30 秒，總分已經被打折。</p>`:""}
     <p class="small" style="margin:10px 0 0;color:${pass?"var(--cyan)":"var(--red)"}">${freeVerdict(r.Q, st)}${practice?(pass?"　這樣上台可以。":`　還差 ${bar-r.Q} 分。`):""}</p>
+    ${lw?`<p class="small" style="margin:8px 0 0;color:var(--amber)">${lw}</p>`:""}
     <p class="small muted" style="margin:6px 0 0">唱了 ${r.sec} 秒、${r.notes} 個音。</p>
     ${url?`<audio controls src="${url}" style="margin-top:10px"></audio>
     <p class="small muted" style="margin:6px 0 0">這段只有你聽得到，不會上傳。</p>`:""}
@@ -1044,7 +1368,7 @@ function freeVerdict(Q, st) {
   return d >= -3 ? "只差一點點。" : "差得有點多。";
 }
 function freeTest() {
-  let mr = null, chunks = [], stream = null, t0 = 0, tick = null;
+  let mr = null, chunks = [], stream = null, t0 = 0, tick = null, meter = null, lastLevel = null;
   app.innerHTML = `<p class="eyebrow">自由模式 · 試分數</p><h2>唱什麼都可以</h2>
   <p class="muted">自己拿別的裝置放伴奏、或直接清唱都行。網站不放任何有版權的音樂，所以這裡沒有伴奏也沒有歌詞。</p>
   <div class="card">
@@ -1057,6 +1381,8 @@ function freeTest() {
   </div>
   <div class="card">
     <p class="mono" id="clk" style="font-size:34px;margin:0 0 10px;color:var(--amber)">0:00</p>
+    <div class="meter" id="mtr"><i></i></div>
+    <p class="small muted" style="margin:0 0 12px">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
     <button class="btn primary" id="rec">開始錄</button>
     <button class="btn" id="stop" disabled>唱完了</button>
   </div>
@@ -1067,10 +1393,14 @@ function freeTest() {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }) }
     catch (e) { alert("拿不到麥克風。"); return }
     chunks = []; mr = new MediaRecorder(stream);
+    meter = startMeter(stream, document.getElementById("mtr"));
+    document.getElementById("mtr").classList.add("on");
     mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data) };
     mr.onstop = async () => {
       clearInterval(tick);
       stream.getTracks().forEach(t => t.stop());
+      lastLevel = meter ? meter.stop() : null; meter = null;
+      const m = document.getElementById("mtr"); if (m) { m.classList.remove("on"); m.querySelector("i").style.width = 0 }
       await done(new Blob(chunks, { type: chunks[0] ? chunks[0].type : "audio/webm" }));
     };
     document.getElementById("rec").disabled = true;
@@ -1103,6 +1433,7 @@ function freeTest() {
       <div class="rowline"><span><b>綜合</b></span><span class="mono"><b>${r.Q}</b></span></div>
       ${r.short?`<p class="small" style="color:var(--amber);margin:10px 0 0">你只唱了 ${r.sec} 秒，不到 30 秒，總分已經被打折。</p>`:""}
       <p class="small muted" style="margin:10px 0 0">唱了 ${r.sec} 秒、${r.notes} 個音。</p>
+      ${levelWarn(lastLevel)?`<p class="small" style="margin:8px 0 0;color:var(--amber)">${levelWarn(lastLevel)}</p>`:""}
       <p class="small" style="margin:8px 0 0;color:var(--cyan)">${cmp}<br>
         門檻：盲選 ${FREEBAR.blind}・PK ${FREEBAR.pk}・決選之夜 ${FREEBAR.night}・決賽 ${FREEBAR.final}。</p>
       <audio controls src="${url}" style="margin-top:10px"></audio>

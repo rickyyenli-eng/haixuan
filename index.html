@@ -88,7 +88,21 @@ audio{width:100%;margin:10px 0}
 .lyrall p{margin:0;padding:5px 8px;font-family:var(--serif);font-size:15px;line-height:1.5;color:var(--dim);cursor:pointer}
 .lyrall p:hover{color:var(--paper);background:#1b1626}
 .lyrall p.on{color:var(--amber);background:#1b1626}
-.seekbar{cursor:pointer;padding:6px 0}
+.seekbar{cursor:pointer;padding:10px 0}
+.seekbar .bar{height:8px;background:#241f33;border:1px solid var(--line)}
+.ctlrow{padding:10px 0;border-bottom:1px solid var(--line)}
+.ctlrow:last-of-type{border-bottom:0}
+.ctlrow>.lab{display:block;font-size:13px;color:var(--dim);margin:0 0 7px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{margin:0 !important;width:auto !important;display:inline-block !important;
+  text-align:center;white-space:nowrap}
+.meter i{min-width:2px}
+#jump button{width:auto !important;display:inline-block !important;margin:0 0 0 6px !important;text-align:center}
+#gb button,#vsel button{width:auto !important;display:inline-block !important;text-align:center}
+.meter{height:10px;background:#241f33;border:1px solid var(--line);position:relative;overflow:hidden;margin:8px 0}
+.meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--cyan);transition:width .06s linear}
+.meter i.hot{background:var(--red)}
+.meter.on{border-color:var(--amber)}
 </style>
 </head>
 <body>
@@ -173,7 +187,8 @@ function resetState(){
   S.saves={};COACHES.forEach(x=>S.saves[x]=1);S.gone=[];S.night=null;fi=0;
   S.noCut=[];S.keeper=[];S.declined=[];S.cuts=[];
 }
-function saveGame(phase){try{localStorage.setItem(SAVEKEY,JSON.stringify(
+let LASTPHASE="blind";
+function saveGame(phase){LASTPHASE=phase;try{localStorage.setItem(SAVEKEY,JSON.stringify(
   {v:4,ts:Date.now(),phase,fi,S,coaches:COACHES,pm:pmSave(),pub:PUB[PM.on?PUB.findIndex(p=>p.id===PM.me):0]}))}catch(e){}}
 function loadGame(){try{const j=JSON.parse(localStorage.getItem(SAVEKEY));
   return j&&j.v===4&&j.S&&j.S.teams?j:null}catch(e){return null}}
@@ -195,16 +210,30 @@ function saveLabel(j){
   if(j.phase==="finals") return "決賽 第 "+((j.fi||0)+1)+" 位";
   return "盲選 "+Math.min(j.S.i+1,PUB.length)+" / "+PUB.length;
 }
-function exportSave(){const j=loadGame();if(!j)return;
-  const b=new Blob([JSON.stringify(j)],{type:"application/json"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="海選進度.json";a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),3000)}
-function importSave(file){const rd=new FileReader();
-  rd.onload=()=>{try{const j=JSON.parse(rd.result);
-    if(!j||j.v!==4||!j.S||!j.S.teams)throw 0;
+async function exportSave(btn){
+  const j=loadGame(); if(!j) return;
+  if(btn){btn.textContent="打包中…";}
+  try{
+    const p=await buildPack(j);
+    const a=document.createElement("a");a.href=URL.createObjectURL(p.blob);
+    a.download="海選進度_"+new Date().toISOString().slice(0,10)+".haixuan";a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),8000);
+    if(btn) btn.textContent=p.n?`已下載（含 ${p.n} 段錄音・${humanMB(p.bytes)}）`:"已下載";
+  }catch(e){ if(btn) btn.textContent="打包失敗"; }
+}
+async function importSave(file){
+  try{
+    let j;
+    if(/\.haixuan$/i.test(file.name)||file.size>2e6){          // 新格式：進度 + 錄音
+      const head=await readPack(file); j=head.save;
+    }else{                                                      // 舊格式：只有進度
+      j=JSON.parse(await file.text());
+    }
+    if(!j||j.v!==4||!j.S||!j.S.teams) throw 0;
     try{localStorage.setItem(SAVEKEY,JSON.stringify(j))}catch(e){}
-    applySave(j);}catch(e){alert("這個檔案不是海選的進度檔（或是舊版）");}};
-  rd.readAsText(file)}
+    applySave(j);
+  }catch(e){ alert("這個檔案不是海選的進度檔（或是舊版）"); }
+}
 
 /* ---------- 開場 ---------- */
 function intro(){
@@ -214,7 +243,11 @@ function intro(){
   <h1>海選</h1>
   <p class="muted">十六個人。一場海選。你可以坐在椅子上，也可以站到台上去。</p>
   ${sv?`<div class="card"><div class="rowline"><span>上次玩到</span><span class="mono">${saveLabel(sv)}</span></div>
-    <button class="btn primary" id="cont" style="margin-top:12px">繼續上次</button></div>`:""}
+    ${sv.pm&&sv.pm.on?`<div class="rowline"><span>已經錄好</span><span class="mono" id="nrec">…</span></div>`:""}
+    <button class="btn primary" id="cont" style="margin-top:12px">繼續上次</button>
+    <button class="btn" id="exp2">存成檔案（含錄音）</button>
+    <p class="small muted" style="margin:6px 0 0">一次唱完四五首不實際。存成檔案就可以換裝置、或隔幾天再回來接著唱。</p>
+  </div>`:""}
   <div class="card">
     <h2 style="font-size:18px;margin-top:0">導師模式</h2>
     <p class="small muted" style="margin:0 0 10px">你是四位導師之一。轉身、搶人、砍人、選歌、打分數。全程都有人在記錄你怎麼做決定。</p>
@@ -235,11 +268,15 @@ function intro(){
   </div>
   <p class="small muted">轉身不限次數，但一隊超過四個人的時候，那位導師<b>可以</b>砍掉自己一個，交給另外三位挑——沒有人要的話他就出局。超過六個人就<b>一定</b>要放掉一個。決選之夜八個人匿名重唱一首新歌，四位導師各交一份完整排序，總名次最後兩名淘汰。每位導師整場有一張保命符 🎟。</p>
   ${ONLINE?"":'<p class="small" style="color:var(--red)">離線模式：config.js 沒有設定，NPC 會用隨機值，結算不會有相關係數。</p>'}
-  <p class="small muted" style="margin-top:16px">進度會自動存在這個瀏覽器。
-  ${sv?'<a href="#" id="exp" style="color:var(--dim)">匯出進度檔</a>　':""}<a href="#" id="imp" style="color:var(--dim)">匯入進度檔</a>
-  <input type="file" id="impf" accept=".json,application/json" style="display:none"></p>`;
+  <p class="small muted" style="margin-top:16px">進度會自動存在這個瀏覽器（錄音也是）。
+  <a href="#" id="imp" style="color:var(--dim)">從檔案接續</a>
+  <input type="file" id="impf" accept=".haixuan,.json,application/json,application/octet-stream" style="display:none"></p>`;
   if(sv){document.getElementById("cont").onclick=()=>applySave(sv);
-    document.getElementById("exp").onclick=e=>{e.preventDefault();exportSave()}}
+    const e2=document.getElementById("exp2");
+    if(e2) e2.onclick=()=>exportSave(e2);
+    const nr=document.getElementById("nrec");
+    if(nr) REC.keys().then(ks=>{const n=ks.filter(k=>k.indexOf("take_")===0).length;
+      nr.textContent=n?n+" 段":"還沒有"}).catch(()=>{nr.textContent="—"});}
   document.getElementById("go").onclick=()=>{clearSave();resetState();blind()};
   document.getElementById("gop").onclick=()=>{clearSave();resetState();playerSetup(false)};
   document.getElementById("gofr").onclick=()=>{clearSave();resetState();playerSetup(true)};
@@ -381,8 +418,9 @@ function after(c,msg,res){
 }
 
 /* ---------- 學員模式：你自己上台 ---------- */
+const takeExt={};
 const dlme=(st,label)=>takeURLs[st]
-  ?`<a class="dl" download="${safeName(label)}.webm" href="${takeURLs[st]}">⬇ 下載你的錄音</a>`:"";
+  ?`<a class="dl" download="${safeName(label)}.${takeExt[st]||"webm"}" href="${takeURLs[st]}">⬇ 下載你的錄音</a>`:"";
 function scoreCard(r){
   return `<div class="card"><h2 style="font-size:18px">電腦怎麼聽你這一次</h2>
     <div class="rowline"><span>音準</span><span class="mono ${r.pitch>=60?"pos":"neg"}">${r.pitch}</span></div>
@@ -447,12 +485,14 @@ function settleFreeBlind(c){
   S.turns.push({id:c.id,sec:null});
   const r=PM.res.blind, n=turnsFor(r.Q);
   if(!n){ S.gone.push(c.id);
+    plog("blind",false,"四張椅子都沒有轉過來。");
     return playerOut("盲選",`${r.Q} 分，沒有到 ${FREEBAR.blind}。四張椅子都沒有轉過來。`,
       freeCard(r,"blind",null,false)); }
   const pool=NPCLIST().slice();
   for(let k=pool.length-1;k>0;k--){const j=Math.floor(Math.random()*(k+1));[pool[k],pool[j]]=[pool[j],pool[k]]}
   const turned=pool.slice(0,n);
   if(turned.length===1){ S.teams[turned[0]].push(c.id);
+    plog("blind",true,`${cl(turned[0])}轉身了，只有他一個。`);
     return after(c,`${r.Q} 分。${cl(turned[0])}轉身了，只有他一個。`,null); }
   app.innerHTML=`<p class="eyebrow">選導師 · ${PM.name}</p><h2>${turned.length} 位轉身</h2>
   ${freeCard(r,"blind",null,false)}
@@ -463,6 +503,7 @@ function settleFreeBlind(c){
     b.onclick=()=>{[...document.querySelectorAll("#opts button")].forEach(y=>y.disabled=true);
       S.teams[x].push(c.id);
       S.events.push(`盲選 ${r.Q} 分，${turned.length} 位轉身，你選了${cl(x)}。`);
+      plog("blind",true,`${turned.length} 位轉身（${turned.map(cl).join("、")}），你選了${cl(x)}。`);
       after(c,`${turned.map(cl).join("、")}都轉了。你選了${cl(x)}。`,null)};
     document.getElementById("opts").appendChild(b);
   });
@@ -487,7 +528,7 @@ function mySettleBlind(c){
   const turned=npcTurnForMe(S.i+1);   /* 用實際上台順序，不是報名順序 */
   const r=PM.res.blind;
   if(!turned.length){
-    S.gone.push(c.id);
+    S.gone.push(c.id); plog("blind",false,"四張椅子都沒有轉過來。");
     return playerOut("盲選","四張椅子都沒有轉過來。",scoreCard(r)+
       `<p class="small muted">${r.Q<55?"唱成這樣，沒有人會為你轉身。":"很接近了，但今天沒有人賭你。"}</p>`);
   }
@@ -496,6 +537,7 @@ function mySettleBlind(c){
     app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length}</p><h2>${cl(turned[0])}轉身了</h2>
     <p class="muted">只有他一個。</p>${scoreCard(r)}
     <button class="btn primary" id="n">繼續</button>`;
+    plog("blind",true,`${cl(turned[0])}轉身了，只有他一個。`);
     document.getElementById("n").onclick=()=>after(c,`${cl(turned[0])}轉身了。只有他一個。`,null);
     return;
   }
@@ -508,12 +550,13 @@ function mySettleBlind(c){
     b.onclick=()=>{[...document.querySelectorAll("#opts button")].forEach(y=>y.disabled=true);
       S.teams[x].push(c.id);
       S.events.push(`盲選有 ${turned.length} 位轉身，你選了${cl(x)}。`);
+      plog("blind",true,`${turned.length} 位轉身（${turned.map(cl).join("、")}），你選了${cl(x)}。`);
       after(c,`${turned.map(cl).join("、")}都轉了。你選了${cl(x)}。`,null)};
     document.getElementById("opts").appendChild(b);
   });
 }
 function playerOut(stage,msg,extra){
-  PM.out={stage,msg};
+  PM.out={stage,msg}; PM.outAlive=alive().length;
   app.innerHTML=`<p class="eyebrow">${stage}</p><h1 style="font-size:34px">你出局了</h1>
   <p class="muted">${msg}</p>
   ${extra||""}
@@ -541,8 +584,9 @@ const blindSong=id=>{const d=PUB.find(p=>p.id===id);return d?sname(d.song):"—"
 
 function meLike(t){
   const r=PM.res.blind||{pitch:50};
-  if(PM.free){ /* 自由模式沒有吃力度，直接用綜合分換算成導師的好感 */
-    return Math.max(1,Math.min(10, 5.5 + (r.Q-FREEBAR.pk)*0.08 + (Math.random()-0.5)*0.6)); }
+  if(PM.free){ /* 自由模式沒有吃力度，直接用綜合分換算成導師的好感。
+                  剛好到 PK 門檻(68) 算普通(6.9，跟 AI 選手差不多)，到冠軍門檻(84) 是 8.3 */
+    return Math.max(1,Math.min(10, 6.9 + (r.Q-FREEBAR.pk)*0.09 + (Math.random()-0.5)*0.6)); }
   const strain=Math.max(0,Math.min(4,4-r.pitch/25));
   return npcScoreLocal(t,strain,true,RURAL(PM.home));
 }
@@ -665,7 +709,8 @@ function finishClaim(c,from,to,npcWant){
       S.gone.push(id);
       const rec=S.cuts[S.cuts.length-1]; if(rec&&rec.id===id) rec.dropped=true;
       S.events.push(`${nm(id)} 被${cl(from)}砍掉，沒有人要，出局。`);
-      if(isMe(id)) return playerOut("釋出",`${cl(from)}把你放掉了，另外三位都沒有接。`);
+      if(isMe(id)){ PM.coach=from; plog("release",false,`${cl(from)}把你放掉了，另外三位都沒有接。`);
+        return playerOut("釋出",`${cl(from)}把你放掉了，另外三位都沒有接。`); }
       msg=`沒有人要他。${fullnm(id)} 離開了。`;
     }
   }
@@ -866,8 +911,10 @@ async function duetGo(atk,def,a,d,sg){
       document.getElementById("n").onclick=pk;
     };
     const eliminate=()=>{S.teams[lt]=S.teams[lt].filter(x=>x!==loser);S.gone.push(loser);S.pkN++;
-      if(isMe(loser)) return playerOut("PK 第一夜",
-        `${nm(a)} ${tot[a].toFixed(2)}　${nm(d)} ${tot[d].toFixed(2)}。你輸了這一場。`,scoreCard(PM.res[sg.key]));
+      if(isMe(loser)){ plog(sg.key,false,`對上 ${nm(isMe(a)?d:a)}，${tot[loser].toFixed(2)} 比 ${tot[isMe(a)?d:a].toFixed(2)}，輸了。`);
+        return playerOut("PK 第一夜",
+        `${nm(a)} ${tot[a].toFixed(2)}　${nm(d)} ${tot[d].toFixed(2)}。你輸了這一場。`,scoreCard(PM.res[sg.key])); }
+      if(PM.on&&(isMe(a)||isMe(d))) plog(sg.key,true,`對上 ${nm(isMe(a)?d:a)}，${tot[isMe(a)?a:d].toFixed(2)} 比 ${tot[loser].toFixed(2)}，贏了。`);
       showResult(`${nm(loser)} 出局，${cl(lt)} 少一人。`)};
     const useSave=()=>{S.saves[lt]--;S.pkN++;
       S.events.push(`${cl(lt)}用掉保命符，保住了 ${nm(loser)}。`);
@@ -916,10 +963,14 @@ async function duetFree(atk,def,a,d,sg){
       document.getElementById("n").onclick=pk;
     };
     const eliminate=()=>{S.teams[lt]=S.teams[lt].filter(x=>x!==loser);S.gone.push(loser);S.pkN++;
-      if(isMe(loser)) return playerOut("PK 第一夜",`${r.Q} 分，沒有到 ${bar}。`,freeCard(r,sg.key,null,false));
+      if(isMe(loser)){ plog(sg.key,false,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}。`);
+        return playerOut("PK 第一夜",`${r.Q} 分，沒有到 ${bar}。`,freeCard(r,sg.key,null,false)); }
+      plog(sg.key,true,`對上 ${nm(foe)}，${r.Q} 分過了 ${bar}，他出局。`);
       showResult(`${r.Q} 分，過了 ${bar} 的門檻。${nm(foe)} 出局。`)};
     const useSave=()=>{S.saves[lt]--;S.pkN++;
       S.events.push(`${cl(lt)}用掉保命符，保住了 ${nm(loser)}。`);
+      if(isMe(loser)) plog(sg.key,true,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}，${cl(lt)}用保命符救了你。`);
+      else plog(sg.key,true,`對上 ${nm(foe)}，你過關，但${cl(lt)}用保命符保住了他。`);
       showResult(isMe(loser)
         ?`你只有 ${r.Q} 分，沒到 ${bar}。但${cl(lt)}用掉整場唯一一次保命符，把你留下來了。`
         :`${nm(foe)}輸了，但${cl(lt)}用掉保命符把他保下來。`)};
@@ -975,7 +1026,7 @@ function night(){
     const p=PUB.find(x=>x.id===id), ok=hasClip(id,'night');
     const card=el(`<div class="card">
       <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">《${sname(p.night)}》${ok?"":"（音檔還沒渲染）"}</span>${dl(id,"night",`海選 決選之夜 ${LABELS[ix]} ${sname(p.night)}`)}</span><span class="mono muted" id="r${ix}">—</span></div>
-      ${ok?`<audio controls src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的決選之夜音檔還沒做好，只能憑前面幾關的印象排。</p>`}
+      ${ok?`<audio controls preload="none" src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的決選之夜音檔還沒做好，只能憑前面幾關的印象排。</p>`}
       ${lyricBox()}
       <button class="btn" data-ix="${ix}">選 ${LABELS[ix]}</button>
     </div>`);
@@ -1034,7 +1085,7 @@ async function nightMe(){
     const card=el(`<div class="card">
       <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">《${sname(song)}》${ok?"":"（音檔還沒渲染）"}</span>${
         isMe(id)?dlme("night",`海選 決選之夜 ${LABELS[ix]} ${sname(song)}`):dl(id,"night",`海選 決選之夜 ${LABELS[ix]} ${sname(song)}`)}</span></div>
-      ${ok?`<audio controls src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的音檔還沒做好。</p>`}
+      ${ok?`<audio controls preload="none" src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">這一位的音檔還沒做好。</p>`}
       ${lyricBox()}
     </div>`);
     box.appendChild(card);
@@ -1084,7 +1135,7 @@ async function nightMeFree(){
     const card=el(`<div class="card">
       <div class="rowline"><span><b>${LABELS[ix]}</b>　<span class="small muted">${mine?"《"+(PM.title.night||"自選曲")+"》":"《"+sname(p.night)+"》"}</span>${
         mine?dlme("night",`海選 決選之夜 ${LABELS[ix]}`):dl(id,"night",`海選 決選之夜 ${LABELS[ix]} ${sname(p.night)}`)}</span></div>
-      ${ok?`<audio controls src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">音檔還沒做好。</p>`}
+      ${ok?`<audio controls preload="none" src="${clip(id,'night')}"></audio>`:`<p class="small" style="color:var(--amber)">音檔還沒做好。</p>`}
     </div>`);
     box.appendChild(card);
   });
@@ -1104,13 +1155,26 @@ async function nightMeFree(){
       ? Math.max(0,Math.min(board.length-2,Math.round((FREEBAR.final-r.Q)/span*(board.length-1))))
       : board.length;
     board.splice(pos,0,{id:PM.me,sum:null});
-    const out=board.slice(-2).map(x=>x.id);
+    /* 淘汰兩個人。
+       你過了門檻就一定安全，沒過就一定出局——分數說了算，名次只是拿來排版面的。
+       另外兩個名額從 AI 裡面由後往前抓，盡量不要讓某位導師掛零（掛零會被抓人回來補）。 */
+    const out=[];
+    if(!pass) out.push(PM.me);
+    const ai=board.map(x=>x.id).filter(x=>!isMe(x));
+    for(let k=ai.length-1;k>=0&&out.length<2;k--){
+      const id=ai[k], t=teamOf(id);
+      if(t&&S.teams[t].length-out.filter(o=>teamOf(o)===t).length<=1) continue;
+      out.push(id);
+    }
+    for(let k=ai.length-1;k>=0&&out.length<2;k--){ if(!out.includes(ai[k])) out.push(ai[k]) }
     S.night.board=board; S.night.out=out; S.night.myOrder=null; S.night.done=true;
     out.forEach(id=>{const t=teamOf(id);S.teams[t]=S.teams[t].filter(x=>x!==id);S.gone.push(id)});
     const myPos=board.findIndex(x=>x.id===PM.me)+1;
     const tbl=`<div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}</span><span class="mono muted">${x.sum===null?r.Q+" 分":"導師總分 "+x.sum}</span></div>`).join("")}</div>`;
-    if(!pass||out.includes(PM.me))
-      return playerOut("決選之夜",`${r.Q} 分，沒有到 ${bar}。八個人裡你排第 ${myPos}，最後兩名走人。`,tbl+freeCard(r,"night",null,false));
+    PM.nightPos=myPos;
+    if(!pass){ plog("night",false,`八個人裡排第 ${myPos}，${r.Q} 分沒到 ${bar}。`);
+      return playerOut("決選之夜",`${r.Q} 分，沒有到 ${bar}。最後兩名走人。`,tbl+freeCard(r,"night",null,false)); }
+    plog("night",true,`八個人裡排第 ${myPos}，${r.Q} 分過了 ${bar}。`);
     app.innerHTML=`<p class="eyebrow">決選之夜 · 開牌</p><h2>總名次</h2>${tbl}
     <p>${out.map(id=>fullnm(id)).join("、")} 出局。</p>
     <div class="card"><div class="rowline"><span>你的名次</span><span class="mono pos">第 ${myPos} 名 / ${board.length}</span></div></div>
@@ -1139,7 +1203,8 @@ function nightResult(board,out,ids,npcRanks){
 function nightResultMe(board,out){
   out.forEach(id=>{const t=teamOf(id);S.teams[t]=S.teams[t].filter(x=>x!==id);S.gone.push(id)});
   const myPos=board.findIndex(x=>x.id===PM.me)+1;
-  const mineOut=out.includes(PM.me);
+  const mineOut=out.includes(PM.me); PM.nightPos=myPos;
+  plog("night",!mineOut,`八個人裡排第 ${myPos}${mineOut?"，最後兩名走人":""}。`);
   const html=`<p class="eyebrow">決選之夜 · 開牌</p><h2>總名次</h2>
   <div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}<span class="small muted"> ${teamOf(x.id)?cl(teamOf(x.id)):"已出局"}</span></span><span class="mono muted">總分 ${x.sum}</span></div>`).join("")}</div>
   <p>${out.map(id=>fullnm(id)).join("、")} 出局。</p>
@@ -1212,12 +1277,17 @@ async function finalsMe(id,list){
     if(isMe(id)&&PM.free){
       /* 自由模式：到門檻才是冠軍，沒到就不可能拿第一 */
       PM.freeChamp=PM.res.final.Q>=FREEBAR.final;
-      total=PM.freeChamp?9.9:(4+PM.res.final.Q/FREEBAR.final);
+      /* 到門檻就是冠軍；沒到就照分數排在中間，結算時再壓到冠軍之下 */
+      total=PM.freeChamp?9.9:(5.2+PM.res.final.Q/FREEBAR.final*2.2);
     }
     else if(isMe(id)) total=playerScore(PM.res.final,heardCount(id),(PUB.find(x=>x.id===id)||{}).order).total;
     else{const r=await cloud("score",{id,stage:"決賽",mine:null,heard:heardCount(id)});
       total=r?r.total:(5+Math.random()*3);}
     S.scores.push({id,stage:"決賽",mine:null,total});
+    if(isMe(id)) plog("final",PM.free?!!PM.freeChamp:true,
+      PM.free?(PM.freeChamp?`${PM.res.final.Q} 分，到了冠軍門檻 ${FREEBAR.final}。`
+                           :`${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。`)
+             :`唱完《會客時間》，等開票。`);
     fi++; finals();
   };
 }
@@ -1230,8 +1300,16 @@ async function reportMe(){
   const done=Object.keys(PM.res);
   for(const k of done) await takeURL(k);
   const alive_=alive().includes(PM.me);
-  let champ=S.scores.filter(s=>s.stage==="決賽").sort((a,b)=>b.total-a.total)[0];
-  if(PM.free&&!PM.freeChamp) champ=S.scores.filter(s=>s.stage==="決賽"&&!isMe(s.id)).sort((a,b)=>b.total-a.total)[0]||champ;
+  const fin=S.scores.filter(s=>s.stage==="決賽");
+  let champ=fin.sort((a,b)=>b.total-a.total)[0];
+  if(PM.free){
+    const bestAI=fin.filter(s=>!isMe(s.id)).sort((a,b)=>b.total-a.total)[0];
+    const mine=fin.find(s=>isMe(s.id));
+    if(bestAI&&mine){
+      if(PM.freeChamp) mine.total=bestAI.total+0.35;        // 贏，但不要贏成一個假數字
+      else{ champ=bestAI; mine.total=Math.min(mine.total,bestAI.total-0.05); }
+    }
+  }
   const won=champ&&champ.id===PM.me;
   const avg=k=>done.length?Math.round(done.reduce((a,x)=>a+PM.res[x][k],0)/done.length):0;
   await cloud("log",{mode:PM.free?"學員·自由":"學員",player:{name:PM.name,home:PM.home,res:PM.res,out:PM.out||null,
@@ -1240,9 +1318,14 @@ async function reportMe(){
   <h1 style="font-size:38px">${won?"你贏了":alive_?"你撐到最後":"你的海選結束了"}</h1>
   <p class="muted">${PM.name}・${PM.home}・${PM.me} 學員${teamOf(PM.me)?"・"+cl(teamOf(PM.me))+"的隊上":""}${PM.free?"・自由模式":""}</p>
   ${PM.free&&alive_&&!won&&PM.res.final?`<p class="small" style="color:var(--amber)">決賽 ${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。</p>`:""}
+  ${(()=>{const fin=S.scores.filter(s=>s.stage==="決賽").sort((a,b)=>b.total-a.total);
+      const k=fin.findIndex(s=>isMe(s.id));
+      return placeCard(won,alive_,k+1,fin.length)})()}
   ${PM.out?`<div class="card"><div class="rowline"><span>止步於</span><span class="mono neg">${PM.out.stage}</span></div>
     <p class="small muted" style="margin:10px 0 0">${PM.out.msg}</p></div>`:""}
+  ${journeyCard()}
 
+  ${REC.blocked?`<div class="card"><p class="small" style="margin:0;color:var(--amber)">這個瀏覽器（或無痕模式）不讓網頁存檔案，所以你的錄音沒有留下來——關掉這一頁就沒了。想留著的話用一般視窗再玩一次。</p></div>`:""}
   ${PM.free?`<div class="card"><h2 style="font-size:18px">電腦全程怎麼聽你</h2>
     <table><thead><tr><th></th><th class="num">音準</th><th class="num">律動</th><th class="num">穩</th><th class="num">完成</th><th class="num">綜合</th><th class="num">門檻</th></tr></thead>
     <tbody>${done.map(k=>`<tr><td>${STPLAIN[k]||k}<span class="small muted"> 《${PM.title[k]||"自選曲"}》</span></td>
@@ -1275,14 +1358,18 @@ async function reportMe(){
       :"客觀分偏低。下一局多在練歌室待一會兒——那裡可以無限重來。"}</p>
   </div>`}
 
+  ${adviceCard(done.map(k=>PM.res[k]),PM.free)}
+  ${coachClosing(done.map(k=>PM.res[k]),PM.free)}
   <div class="card"><h2 style="font-size:18px">把你的錄音帶走</h2>
     <p class="small muted" style="margin:0 0 12px">這些檔案只存在這台裝置。換一台就沒有了。</p>
     ${done.map(k=>dlme(k,`海選 ${STPLAIN[k]||k} ${PM.name}`).replace(">⬇ 下載你的錄音<",`>⬇ ${(PM.free?STPLAIN[k]:STLABEL[k])||k}<`)).join("")}
   </div>
 
-  <div class="card"><div class="rowline"><span>冠軍</span><span class="mono">${champ?fullnm(champ.id)+"（"+cl(teamOf(champ.id))+"）":"—"}</span></div>
+  ${champ?`<div class="card"><h2 style="font-size:18px">決賽開票</h2>
+    <div class="rowline"><span>冠軍</span><span class="mono">${fullnm(champ.id)}${teamOf(champ.id)?"（"+cl(teamOf(champ.id))+"）":""}</span></div>
     ${S.scores.filter(s=>s.stage==="決賽").sort((a,b)=>b.total-a.total).map((s,k)=>
-      `<div class="rowline"><span>${k+1}. ${fullnm(s.id)}</span><span class="mono muted">${s.total.toFixed(2)}</span></div>`).join("")}</div>
+      `<div class="rowline"><span>${k+1}. ${fullnm(s.id)}</span><span class="mono ${isMe(s.id)?"pos":"muted"}">${s.total.toFixed(2)}</span></div>`).join("")}</div>`
+   :`<div class="card"><p class="small muted" style="margin:0">你在決賽之前就走了，所以後面誰拿冠軍，你沒有看到。</p></div>`}
   ${S.events.length?`<div class="card"><h2 style="font-size:18px">發生過的事</h2>${S.events.map(e=>`<p class="small" style="margin:6px 0">${e}</p>`).join("")}</div>`:""}
   <button class="btn primary" id="again">再玩一次</button>
   <button class="btn danger" id="wipe">清掉這台裝置上的所有錄音</button>
