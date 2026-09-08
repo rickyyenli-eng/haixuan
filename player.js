@@ -227,7 +227,11 @@ async function analyzeTake(blob, hash, keyShift, onProg) {
     }
     rhythm = Math.round(sum / L.length * 100);
   }
-  const Q = Math.round(pitch * 0.5 + rhythm * 0.3 + complete * 0.2);
+  /* 節奏跟完整度對「跟著伴奏唱」的人幾乎是送分（96~98 / 100），
+     舊公式 0.5/0.3/0.2 等於 Q ≈ 音準/2 + 49，整條尺被壓在 50~92 之間。
+     改成音準為主、完整度當係數，讓這個模式跟自由模式落在同一把尺上——
+     84 分在兩邊才是同一件事。前面幾關的難度沒有變，見 playerScore 的註解。 */
+  const Q = Math.round((pitch * 0.70 + rhythm * 0.30) * (0.6 + 0.4 * complete / 100));
   return { pitch, rhythm, complete, Q, off: bestOff * 0.04, oct: bestOct };
 }
 
@@ -386,7 +390,9 @@ function npcScoreLocal(coach, strain, story, rural) {
   return Math.max(1, Math.min(10, s + (Math.random() - 0.5)));
 }
 function playerScore(res, heard, order) {
-  const Q = res.Q, D = Math.max(-1.3, Math.min(1.3, (Q - 72) / 30 * 1.3));
+  /* 換尺後 72/30 等價於 65/38（新尺 ×0.79 + 20.6 = 舊尺），
+     所以盲選 / PK / 決選之夜的難度跟換尺前一模一樣。 */
+  const Q = res.Q, D = Math.max(-1.3, Math.min(1.3, (Q - 65) / 38 * 1.3));
   const strain = Math.max(0, Math.min(4, 4 - res.pitch / 25));
   const rural = RURAL(PM.home);
   const npcs = NPCLIST().map(x => npcScoreLocal(x, strain, true, rural));
@@ -401,11 +407,12 @@ const PM = { on: false, free: false, me: null, name: "", home: "", say: "", voic
              song: {}, res: {}, mhash: {}, key: {}, title: {}, log: [], last: null };
 function pmReset() { PM.on = false; PM.free = false; PM.me = null; PM.name = ""; PM.home = ""; PM.say = ""; PM.voice = "男";
   PM.song = {}; PM.res = {}; PM.mhash = {}; PM.key = {}; PM.title = {}; PM.log = [];
-  PM.last = null; PM.out = null; PM.outAlive = null; PM.nightPos = null; PM.freeChamp = false; PM.coach = null }
+  PM.last = null; PM.out = null; PM.outAlive = null; PM.nightPos = null; PM.freeChamp = false; PM.coach = null;
+  PM.rescued = null }
 function pmSave() { return { on: PM.on, free: PM.free, me: PM.me, name: PM.name, home: PM.home, say: PM.say,
   voice: PM.voice, song: PM.song, res: PM.res, mhash: PM.mhash, key: PM.key, title: PM.title,
   log: PM.log || [], out: PM.out || null, outAlive: PM.outAlive || null, nightPos: PM.nightPos || null,
-  coach: PM.coach || null } }
+  coach: PM.coach || null, rescued: PM.rescued || null, freeChamp: !!PM.freeChamp } }
 function pmLoad(o) { if (o) Object.assign(PM, o) }
 
 /* ==========================================================================
@@ -847,7 +854,7 @@ function attachKaraoke(au, hash, box, fullBox) {
 }
 const mmss = t => (isFinite(t) ? Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0") : "0:00");
 /* 這個分數大概贏得過幾成的 AI 選手（來自四萬次模擬的對照表） */
-const BEATTAB = [[30, 0], [45, 1], [55, 16], [65, 61], [75, 97], [85, 100], [95, 100]];
+const BEATTAB = [[12, 0], [31, 1], [44, 16], [56, 61], [69, 97], [82, 100], [94, 100]];
 function beatPct(Q) {
   if (Q <= BEATTAB[0][0]) return 0;
   for (let i = 1; i < BEATTAB.length; i++) {
@@ -857,11 +864,13 @@ function beatPct(Q) {
   return 100;
 }
 function passHint(Q) {
-  const b = beatPct(Q);
-  if (Q >= 78) return `贏過大約 ${b}% 的 AI 選手。這種分數盲選一定有人轉，PK 也很難輸。`;
-  if (Q >= 68) return `贏過大約 ${b}% 的 AI 選手。盲選會過，PK 就看抽到誰。`;
-  if (Q >= 58) return `贏過大約 ${b}% 的 AI 選手。盲選大概會過，PK 有一半機會。`;
-  if (Q >= 48) return `贏過大約 ${b}% 的 AI 選手。盲選可能勉強過，後面關卡會很危險。`;
+  const b = beatPct(Q), C = FREEBAR.final;
+  const champ = Q >= C ? `到了冠軍門檻 ${C}——決賽唱出這個分數就是冠軍。`
+                       : `冠軍門檻 ${C}，還差 ${C - Q} 分。`;
+  if (Q >= 75) return `贏過大約 ${b}% 的 AI 選手。前面幾關很穩。${champ}`;
+  if (Q >= 62) return `贏過大約 ${b}% 的 AI 選手。盲選會過，PK 就看抽到誰。${champ}`;
+  if (Q >= 50) return `贏過大約 ${b}% 的 AI 選手。盲選大概會過，後面關卡會很危險。${champ}`;
+  if (Q >= 38) return `贏過大約 ${b}% 的 AI 選手。盲選可能勉強過，之後很難撐住。${champ}`;
   return `贏過大約 ${b}% 的 AI 選手。這樣上台會被淘汰，再多練幾次。`;
 }
 
@@ -1469,8 +1478,8 @@ function freePractice() {
   document.getElementById("back").onclick = intro;
 }
 function qNote(r) {
-  if (r.Q >= 80) return "這一次唱得很穩，上台不會有問題。";
-  if (r.Q >= 65) return "堪用。再抓一下" + (r.pitch < r.rhythm ? "音準" : "節奏") + "會更好。";
+  if (r.Q >= 75) return "這一次唱得很穩，上台不會有問題。";
+  if (r.Q >= 56) return "堪用。再抓一下" + (r.pitch < r.rhythm ? "音準" : "節奏") + "會更好。";
   if (r.complete < 50) return "有大段沒有出聲——是不是伴奏跑掉了、還是麥克風沒收到？";
   if (r.pitch < 45) return "音準離參考的旋律有點遠。先只播伴奏跟著哼幾次再錄。";
   return "還不到能上台的樣子，再練幾次。";

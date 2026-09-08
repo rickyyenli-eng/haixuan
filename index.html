@@ -432,7 +432,7 @@ async function myBlind(c){
   if(PM.free) return myBlindFree(c);
   if(!PM.res.blind) return practiceRoom({stage:"blind",songKey:PM.song.blind,
     eyebrow:`盲選 ${S.i+1} / ${PUB.length} · 輪到你`,
-    note:"四位導師背對著你。唱完他們才會決定要不要轉身。",
+    note:`四位導師背對著你。${FREEBAR.blind} 分才會有人轉身，分數越高轉的越多。`,
     onGo:()=>myBlind(c)});
   const url=await takeURL("blind");
   app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length} · 你</p>
@@ -453,13 +453,13 @@ async function myBlind(c){
   document.getElementById("play").onclick=e=>{au.play();e.target.textContent="播放中…"};
   au.ontimeupdate=()=>{document.getElementById("t").textContent=au.currentTime.toFixed(1);
     document.getElementById("prog").style.width=(au.currentTime/(au.duration||1)*100)+"%"};
-  au.onended=()=>{if(!done){done=true;mySettleBlind(c)}};
-  document.getElementById("skip").onclick=()=>{au.pause();if(!done){done=true;mySettleBlind(c)}};
+  au.onended=()=>{if(!done){done=true;settleBlindMe(c)}};
+  document.getElementById("skip").onclick=()=>{au.pause();if(!done){done=true;settleBlindMe(c)}};
 }
 async function myBlindFree(c){
   if(!PM.res.blind) return freeRoom({stage:"blind",
     eyebrow:`盲選 ${S.i+1} / ${PUB.length} · 輪到你`,
-    note:"四位導師背對著你。唱完他們才會決定要不要轉身。",
+    note:`四位導師背對著你。${FREEBAR.blind} 分才會有人轉身，分數越高轉的越多。`,
     onGo:()=>myBlindFree(c)});
   const url=await takeURL("blind"), r=PM.res.blind;
   app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length} · 你</p>
@@ -478,24 +478,34 @@ async function myBlindFree(c){
   document.getElementById("play").onclick=e=>{au.play();e.target.textContent="播放中…"};
   au.ontimeupdate=()=>{document.getElementById("t").textContent=au.currentTime.toFixed(1);
     document.getElementById("prog").style.width=(au.currentTime/(au.duration||1)*100)+"%"};
-  au.onended=()=>{if(!done){done=true;settleFreeBlind(c)}};
-  document.getElementById("skip").onclick=()=>{au.pause();if(!done){done=true;settleFreeBlind(c)}};
+  au.onended=()=>{if(!done){done=true;settleBlindMe(c)}};
+  document.getElementById("skip").onclick=()=>{au.pause();if(!done){done=true;settleBlindMe(c)}};
 }
-function settleFreeBlind(c){
+function settleBlindMe(c){
   S.turns.push({id:c.id,sec:null});
-  const r=PM.res.blind, n=turnsFor(r.Q);
-  if(!n){ S.gone.push(c.id);
-    plog("blind",false,"四張椅子都沒有轉過來。");
-    return playerOut("盲選",`${r.Q} 分，沒有到 ${FREEBAR.blind}。四張椅子都沒有轉過來。`,
-      freeCard(r,"blind",null,false)); }
-  const pool=NPCLIST().slice();
-  for(let k=pool.length-1;k>0;k--){const j=Math.floor(Math.random()*(k+1));[pool[k],pool[j]]=[pool[j],pool[k]]}
-  const turned=pool.slice(0,n);
-  if(turned.length===1){ S.teams[turned[0]].push(c.id);
-    plog("blind",true,`${cl(turned[0])}轉身了，只有他一個。`);
-    return after(c,`${r.Q} 分。${cl(turned[0])}轉身了，只有他一個。`,null); }
+  const r=PM.res.blind, bar=FREEBAR.blind, card=meCard(r,"blind");
+  let turned=chairsFor(r.Q), saved=null;
+  if(!turned.length){ saved=coachSave(r.Q,bar); if(saved) turned=[saved.coach]; }
+  if(!turned.length){
+    S.gone.push(c.id);
+    plog("blind",false,`${r.Q} 分，沒有到 ${bar}。四張椅子都沒有轉過來。`);
+    return playerOut("盲選",`${r.Q} 分，沒有到 ${bar}。四張椅子都沒有轉過來。`,card+
+      `<p class="small muted">${r.Q<bar-16?"唱成這樣，沒有人會為你轉身。":"很接近了，但今天沒有人賭你。"}</p>`);
+  }
+  if(turned.length===1){
+    S.teams[turned[0]].push(c.id);
+    const line=saved?`${r.Q} 分，其實沒到 ${bar}。但${cl(turned[0])}還是轉過來了——他就是想再聽你唱一次。`
+                    :`只有他一個。`;
+    app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length}</p><h2>${cl(turned[0])}轉身了</h2>
+    <p class="muted">${line}</p>${card}
+    <button class="btn primary" id="n">繼續</button>`;
+    plog("blind",true,saved?`${cl(turned[0])}轉身了——${r.Q} 分沒到 ${bar}，他把你撈起來。`
+                           :`${cl(turned[0])}轉身了，只有他一個。`);
+    document.getElementById("n").onclick=()=>after(c,`${cl(turned[0])}轉身了。${line}`,null);
+    return;
+  }
   app.innerHTML=`<p class="eyebrow">選導師 · ${PM.name}</p><h2>${turned.length} 位轉身</h2>
-  ${freeCard(r,"blind",null,false)}
+  ${card}
   <p class="muted">現在換你選。這一整場你都待在他的隊上。</p>
   <div id="opts"></div>`;
   turned.forEach(x=>{
@@ -508,59 +518,12 @@ function settleFreeBlind(c){
     document.getElementById("opts").appendChild(b);
   });
 }
-function npcTurnForMe(order){
-  const Q=PM.res.blind.Q, strain=Math.max(0,Math.min(4,4-PM.res.blind.pitch/25)), rural=RURAL(PM.home);
-  /* 盲選是入口，門檻放寬：Q=65 有九成會有人轉、Q=45 也還有七成。
-     真正會刷掉人的是後面的 PK 和決選之夜。 */
-  return NPCLIST().filter(x=>{
-    let p=0.55;
-    if(x==="老派技術控")p+=(2-strain)*0.18;
-    if(x==="情緒派")p+=(strain-1)*0.14+0.10;
-    if(x==="市場派")p+=0.20;
-    if(x==="鄉土派")p+=(rural?0.20:-0.10);
-    p+=(Q-72)/30*0.30;
-    p-=(order-1)*0.02;
-    return Math.random()<Math.max(0.10,Math.min(0.95,p));
-  });
-}
-function mySettleBlind(c){
-  S.turns.push({id:c.id,sec:null});
-  const turned=npcTurnForMe(S.i+1);   /* 用實際上台順序，不是報名順序 */
-  const r=PM.res.blind;
-  if(!turned.length){
-    S.gone.push(c.id); plog("blind",false,"四張椅子都沒有轉過來。");
-    return playerOut("盲選","四張椅子都沒有轉過來。",scoreCard(r)+
-      `<p class="small muted">${r.Q<55?"唱成這樣，沒有人會為你轉身。":"很接近了，但今天沒有人賭你。"}</p>`);
-  }
-  if(turned.length===1){
-    S.teams[turned[0]].push(c.id);
-    app.innerHTML=`<p class="eyebrow">盲選 ${S.i+1} / ${PUB.length}</p><h2>${cl(turned[0])}轉身了</h2>
-    <p class="muted">只有他一個。</p>${scoreCard(r)}
-    <button class="btn primary" id="n">繼續</button>`;
-    plog("blind",true,`${cl(turned[0])}轉身了，只有他一個。`);
-    document.getElementById("n").onclick=()=>after(c,`${cl(turned[0])}轉身了。只有他一個。`,null);
-    return;
-  }
-  app.innerHTML=`<p class="eyebrow">選導師 · ${PM.name}</p><h2>${turned.length} 位轉身</h2>
-  ${scoreCard(r)}
-  <p class="muted">現在換你選。這一整場你都待在他的隊上。</p>
-  <div id="opts"></div>`;
-  turned.forEach(x=>{
-    const b=el(`<button class="btn">${cl(x)}　<span class="small muted">${S.teams[x].length} 人在隊上</span></button>`);
-    b.onclick=()=>{[...document.querySelectorAll("#opts button")].forEach(y=>y.disabled=true);
-      S.teams[x].push(c.id);
-      S.events.push(`盲選有 ${turned.length} 位轉身，你選了${cl(x)}。`);
-      plog("blind",true,`${turned.length} 位轉身（${turned.map(cl).join("、")}），你選了${cl(x)}。`);
-      after(c,`${turned.map(cl).join("、")}都轉了。你選了${cl(x)}。`,null)};
-    document.getElementById("opts").appendChild(b);
-  });
-}
 function playerOut(stage,msg,extra){
   PM.out={stage,msg}; PM.outAlive=alive().length;
   app.innerHTML=`<p class="eyebrow">${stage}</p><h1 style="font-size:34px">你出局了</h1>
   <p class="muted">${msg}</p>
   ${extra||""}
-  <p class="small muted">這個模式沒有保底。走到這裡就是走到這裡。</p>
+  <p class="small muted">到門檻就一定過，沒到就走人——偶爾會有導師撈你，但整場只有一次。</p>
   <button class="btn primary" id="n">看結算</button>`;
   document.getElementById("n").onclick=report;
 }
@@ -588,7 +551,10 @@ function meLike(t){
                   剛好到 PK 門檻(68) 算普通(6.9，跟 AI 選手差不多)，到冠軍門檻(84) 是 8.3 */
     return Math.max(1,Math.min(10, 6.9 + (r.Q-FREEBAR.pk)*0.09 + (Math.random()-0.5)*0.6)); }
   const strain=Math.max(0,Math.min(4,4-r.pitch/25));
-  return npcScoreLocal(t,strain,true,RURAL(PM.home));
+  /* 導師的好感也要吃客觀分，不然唱得爛只會被當成「很有情緒」，反而更受寵。
+     ±2.0 比公開的評審分修正(±1.3)更兇，因為真正決定去留的是導師的私心。 */
+  const D=Math.max(-2,Math.min(2,((r.Q||65)-65)/38*2));
+  return Math.max(1,Math.min(10,npcScoreLocal(t,strain,true,RURAL(PM.home))+D));
 }
 function meCutWeight(t){
   const n=Math.max(1,S.teams[t].length);
@@ -596,6 +562,55 @@ function meCutWeight(t){
 }
 function meClaimP(x){
   return Math.max(0.03,Math.min(0.85,0.35+(meLike(x)-6.9)*0.22));
+}
+
+/* ---------- 兩個模式共用的一條規則 ----------
+   Q >= 門檻 → 一定過，沒有任何導師刷得掉你
+   Q <  門檻 → 走人，除非「現在最喜歡你的那一位導師」把你撈起來
+   撈人整場只有一次，差越多越不可能，差 18 分以上不可能。
+   決賽的冠軍門檻不適用——冠軍一定要自己唱到。 */
+function coachSave(Q,bar){
+  if(PM.rescued) return null;
+  const gap=bar-Q;
+  if(gap<=0||gap>18) return null;
+  let p=gap<=2?0.40:gap<=5?0.25:gap<=10?0.12:0.04;
+  const pool=NPCLIST().filter(x=>x!=="你");
+  if(!pool.length) return null;
+  let best=pool[0],bv=-99;
+  for(const x of pool){const v=meLike(x); if(v>bv){bv=v;best=x}}
+  p*=Math.max(0.5,Math.min(1.5,bv/6.9));
+  if(Math.random()>=p) return null;
+  PM.rescued={coach:best,bar:bar,Q:Q};
+  return PM.rescued;
+}
+/* 幾張椅子轉身由分數決定（兩個模式一樣）；轉的是誰由好感決定。 */
+function chairsFor(Q){
+  const n=turnsFor(Q);
+  if(!n) return [];
+  return NPCLIST().map(x=>({x:x,v:meLike(x)+(Math.random()-0.5)*0.8}))
+    .sort((a,b)=>b.v-a.v).slice(0,n).map(o=>o.x);
+}
+const meCard=(r,st)=>PM.free?freeCard(r,st,null,false):scoreCard(r);
+/* 決選之夜的判定，兩個模式一樣：你的名次由分數決定，AI 之間才看導師排名。 */
+function nightSettleMe(others,sumOf,r){
+  const bar=FREEBAR.night, pass=r.Q>=bar;
+  const saved=pass?null:coachSave(r.Q,bar);
+  const board=others.map(id=>({id:id,sum:sumOf[id]})).sort((a,b)=>a.sum-b.sum);
+  const span=Math.max(1,FREEBAR.final-bar);
+  const pos=(pass||saved)
+    ? Math.max(0,Math.min(board.length-2,Math.round((FREEBAR.final-r.Q)/span*(board.length-1))))
+    : board.length;
+  board.splice(pos,0,{id:PM.me,sum:null});
+  const out=[];
+  if(!pass&&!saved) out.push(PM.me);
+  const ai=board.map(x=>x.id).filter(x=>!isMe(x));
+  for(let k=ai.length-1;k>=0&&out.length<2;k--){
+    const id=ai[k], t=teamOf(id);
+    if(t&&S.teams[t].length-out.filter(o=>teamOf(o)===t).length<=1) continue;
+    out.push(id);
+  }
+  for(let k=ai.length-1;k>=0&&out.length<2;k--){ if(!out.includes(ai[k])) out.push(ai[k]) }
+  return {board:board,out:out,pass:pass,saved:saved,bar:bar};
 }
 async function releasePhase(t){
   saveGame("blind");
@@ -606,8 +621,12 @@ async function releasePhase(t){
     <p class="muted">${force?`超過 ${TEAM_HARD} 個人，他一定要放掉一個。`:"他在看名單…"}</p>`;
     const r=await cloud("release",{coach:t,ids:can.filter(x=>!isMe(x)),force:force});
     let cut=(r&&r.cut&&can.includes(r.cut))?r.cut:null;
-    if(PM.on&&can.includes(PM.me)&&Math.random()<meCutWeight(t)) cut=PM.me;
-    if(!cut&&force) cut=can[Math.floor(Math.random()*can.length)];
+    /* 到門檻就穩過：盲選分數有到的人，導師放不掉，強制釋出也抓不到他。
+       被導師撈進來的（分數沒到）才會被放掉。 */
+    const _safe=PM.on&&PM.res.blind&&PM.res.blind.Q>=FREEBAR.blind;
+    const _pool=_safe?can.filter(x=>!isMe(x)):can;
+    if(PM.on&&!_safe&&can.includes(PM.me)&&Math.random()<meCutWeight(t)) cut=PM.me;
+    if(!cut&&force&&_pool.length) cut=_pool[Math.floor(Math.random()*_pool.length)];
     if(!cut){
       S.declined.push(t);
       app.innerHTML=`<p class="eyebrow">釋出</p><h2>${cl(t)}決定都留著</h2>
@@ -808,22 +827,19 @@ function pickSong(tg,mine){
   });
 }
 function duet(atk,def,a,d,sg){
-  if(PM.free&&(a===PM.me||d===PM.me)){
-    if(!PM.res[sg.key]){
-      const foe=(a===PM.me)?d:a;
-      return freeRoom({stage:sg.key,
-        eyebrow:`PK 第一夜 ${S.pkN+1} · 你被點名了`,
-        note:`${cl(atk)}點你上台。對手是 ${nm(foe)}，他唱《${sname(sg.song)}》。你唱什麼都可以。`,
-        onGo:()=>duetFree(atk,def,a,d,sg)});
-    }
-    return duetFree(atk,def,a,d,sg);
-  }
-  if(PM.on&&(a===PM.me||d===PM.me)&&!PM.res[sg.key]){
+  if(PM.on&&(a===PM.me||d===PM.me)){
     const foe=(a===PM.me)?d:a;
-    return practiceRoom({stage:sg.key,songKey:sg.song,
-      eyebrow:`PK 第一夜 ${S.pkN+1} · 你被點名了`,
-      note:`${cl(atk)}指定的題目（${sg.dim}・${sg.note}）。對手是 ${nm(foe)}。`,
-      onGo:()=>duetGo(atk,def,a,d,sg)});
+    if(!PM.res[sg.key]){
+      if(PM.free) return freeRoom({stage:sg.key,
+        eyebrow:`PK 第一夜 ${S.pkN+1} · 你被點名了`,
+        note:`${cl(atk)}點你上台。對手是 ${nm(foe)}，他唱《${sname(sg.song)}》。你唱什麼都可以，門檻 ${FREEBAR.pk} 分。`,
+        onGo:()=>duetMe(atk,def,a,d,sg)});
+      return practiceRoom({stage:sg.key,songKey:sg.song,
+        eyebrow:`PK 第一夜 ${S.pkN+1} · 你被點名了`,
+        note:`${cl(atk)}指定的題目（${sg.dim}・${sg.note}）。對手是 ${nm(foe)}。門檻 ${FREEBAR.pk} 分。`,
+        onGo:()=>duetMe(atk,def,a,d,sg)});
+    }
+    return duetMe(atk,def,a,d,sg);
   }
   return duetGo(atk,def,a,d,sg);
 }
@@ -933,25 +949,29 @@ async function duetGo(atk,def,a,d,sg){
   };
 }
 
-async function duetFree(atk,def,a,d,sg){
+async function duetMe(atk,def,a,d,sg){
   const me=PM.me, foe=(a===me)?d:a, r=PM.res[sg.key], bar=barOf(sg.key), pass=r.Q>=bar;
+  const saved=pass?null:coachSave(r.Q,bar);
+  const card=meCard(r,sg.key);
+  const myTitle=PM.free?(PM.title[sg.key]||"自選曲"):sname(sg.song);
   await takeURL(sg.key);
-  S.pkPicks.push({round:S.pkN+1,atk,def,a,d,song:sg.song,byYou:false});
+  S.pkPicks.push({round:S.pkN+1,atk:atk,def:def,a:a,d:d,song:sg.song,byYou:false});
   app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN+1} · ${cl(atk)} 攻 ${cl(def)}</p>
   <h2>${fullnm(a)} vs ${fullnm(d)}</h2>
-  <p class="small muted">${cl(atk)}指定《${sname(sg.song)}》給 ${nm(foe)}。你唱的是《${PM.title[sg.key]||"自選曲"}》——自由模式各唱各的，比的是分數。</p>
+  <p class="small muted">${cl(atk)}指定《${sname(sg.song)}》給 ${nm(foe)}。${
+    PM.free?`你唱的是《${myTitle}》——自由模式各唱各的，比的是分數。`
+           :`你唱的是同一首。比的是分數：到 ${bar} 就過。`}</p>
   <p class="mono small" style="color:var(--cyan)">${nm(foe)}《${sname(sg.song)}》${dl(foe,sg.key,`海選 PK ${RNAME[foe]}「${nm(foe)}」 ${sname(sg.song)}`)}</p>
   <audio controls src="${clip(foe,sg.key)}"></audio>
   ${lyricBox()}
-  <p class="mono small" style="color:var(--amber);margin-top:14px">你《${PM.title[sg.key]||"自選曲"}》${dlme(sg.key,`海選 PK ${PM.name} ${PM.title[sg.key]||"自選曲"}`)}</p>
+  <p class="mono small" style="color:var(--amber);margin-top:14px">你《${myTitle}》${dlme(sg.key,`海選 PK ${PM.name} ${myTitle}`)}</p>
   <audio controls src="${clip(me,sg.key)}"></audio>
-  ${freeCard(r,sg.key,null,false)}
+  ${card}
   <button class="btn primary" id="ok">聽評審宣布</button>`;
   {const _a=document.querySelectorAll("audio");
    if(_a[0]) attachLyrics(_a[0],FMAP[foe+"_"+sg.key],app.querySelector(".lyric"));}
   document.getElementById("ok").onclick=()=>{
     document.getElementById("ok").disabled=true;
-    const loser=pass?foe:me, lt=teamOf(loser);
     const showResult=msg=>{
       app.innerHTML=`<p class="eyebrow">PK 第一夜 ${S.pkN} 結果</p>
       <div class="card"><div class="rowline"><span>你</span><span class="mono ${pass?"pos":"neg"}">${r.Q}　門檻 ${bar}</span></div>
@@ -962,20 +982,21 @@ async function duetFree(atk,def,a,d,sg){
       <button class="btn primary" id="n">${alive().length<=PK_TARGET?"進決選之夜":"下一場"}</button>`;
       document.getElementById("n").onclick=pk;
     };
-    const eliminate=()=>{S.teams[lt]=S.teams[lt].filter(x=>x!==loser);S.gone.push(loser);S.pkN++;
-      if(isMe(loser)){ plog(sg.key,false,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}。`);
-        return playerOut("PK 第一夜",`${r.Q} 分，沒有到 ${bar}。`,freeCard(r,sg.key,null,false)); }
+    if(pass){
+      const lt=teamOf(foe);
+      S.teams[lt]=S.teams[lt].filter(x=>x!==foe); S.gone.push(foe); S.pkN++;
       plog(sg.key,true,`對上 ${nm(foe)}，${r.Q} 分過了 ${bar}，他出局。`);
-      showResult(`${r.Q} 分，過了 ${bar} 的門檻。${nm(foe)} 出局。`)};
-    const useSave=()=>{S.saves[lt]--;S.pkN++;
-      S.events.push(`${cl(lt)}用掉保命符，保住了 ${nm(loser)}。`);
-      if(isMe(loser)) plog(sg.key,true,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}，${cl(lt)}用保命符救了你。`);
-      else plog(sg.key,true,`對上 ${nm(foe)}，你過關，但${cl(lt)}用保命符保住了他。`);
-      showResult(isMe(loser)
-        ?`你只有 ${r.Q} 分，沒到 ${bar}。但${cl(lt)}用掉整場唯一一次保命符，把你留下來了。`
-        :`${nm(foe)}輸了，但${cl(lt)}用掉保命符把他保下來。`)};
-    if(S.saves[lt]>0&&(S.teams[lt].length<=2||Math.random()<0.35)) useSave();
-    else eliminate();
+      return showResult(`${r.Q} 分，過了 ${bar} 的門檻。${nm(foe)} 出局。`);
+    }
+    if(saved){
+      S.pkN++;
+      plog(sg.key,true,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}，${cl(saved.coach)}把你留下來。`);
+      return showResult(`你只有 ${r.Q} 分，沒到 ${bar}。但${cl(saved.coach)}開口了——他說他今天想再賭你一次，所以你留下來，${nm(foe)}也留下來。`);
+    }
+    const lt=teamOf(me);
+    S.teams[lt]=S.teams[lt].filter(x=>x!==me); S.gone.push(me); S.pkN++;
+    plog(sg.key,false,`對上 ${nm(foe)}，${r.Q} 分沒到 ${bar}。`);
+    return playerOut("PK 第一夜",`${r.Q} 分，沒有到 ${bar}。`,card);
   };
 }
 
@@ -989,7 +1010,7 @@ function nightIntro(){
   if(PM.on&&alive().includes(PM.me)&&!PM.res.night)
     return practiceRoom({stage:"night",songKey:PM.song.night,
       eyebrow:"決選之夜 · 輪到你",
-      note:"台上沒有名字。八個人各唱一首今晚沒出現過的歌。",
+      note:`台上沒有名字。八個人各唱一首今晚沒出現過的歌。門檻 ${FREEBAR.night} 分。`,
       onGo:nightIntro});
   if(!S.night){
     const list=alive(); const ord=shuffled(list.length);
@@ -1106,18 +1127,14 @@ async function nightMe(){
       const pos=Math.max(0,Math.min(list.length,Math.round((8.6-v)*list.length/3.4)));
       const cp=list.filter(x=>!isMe(x)); cp.splice(pos,0,PM.me); return cp;
     });
-    const sum={}; ids.forEach(id=>sum[id]=0);
-    npcRanks.forEach(list=>list.forEach((id,k)=>sum[id]+=k+1));
-    const board=ids.map(id=>({id,sum:sum[id]})).sort((a,b)=>a.sum-b.sum);
-    const out=[];
-    for(let k=board.length-1;k>=0&&out.length<2;k--){
-      const id=board[k].id,t=teamOf(id);
-      if(!isMe(id)&&S.teams[t].length-out.filter(o=>teamOf(o)===t).length<=1) continue;
-      out.push(id);
-    }
-    while(out.length<2){const cand=board.slice().reverse().find(x=>!out.includes(x.id));if(!cand)break;out.push(cand.id)}
-    S.night.board=board; S.night.out=out; S.night.myOrder=null; S.night.done=true;
-    nightResult(board,out,null,npcRanks);
+    /* 你的名次由分數決定，AI 之間才看導師排名——跟自由模式同一條規則 */
+    const others=ids.filter(x=>!isMe(x));
+    const sum={}; others.forEach(id=>sum[id]=0);
+    npcRanks.forEach(list=>list.filter(x=>!isMe(x)).forEach((id,k)=>sum[id]+=k+1));
+    const st=nightSettleMe(others,sum,PM.res.night);
+    S.night.board=st.board; S.night.out=st.out; S.night.myOrder=null; S.night.done=true;
+    S.night.saved=st.saved?st.saved.coach:null;
+    nightResult(st.board,st.out,null,npcRanks);
   };
 }
 async function nightMeFree(){
@@ -1147,37 +1164,24 @@ async function nightMeFree(){
     const npcRanks=rr?rr.npcRanks:NPCLIST().map(()=>shuffled(n).map(k=>others[k]));
     const sum={}; others.forEach(id=>sum[id]=0);
     npcRanks.forEach(list=>list.forEach((id,k)=>sum[id]+=k+1));
-    const board=others.map(id=>({id,sum:sum[id]})).sort((a,b)=>a.sum-b.sum);
-    // 你的名次由分數決定：90 分排第一，剛好到門檻排中後段，沒過就墊底
-    /* 過門檻的人不會掉進最後兩名；分數越接近冠軍門檻排越前面 */
-    const span=Math.max(1,FREEBAR.final-FREEBAR.night);
-    const pos=pass
-      ? Math.max(0,Math.min(board.length-2,Math.round((FREEBAR.final-r.Q)/span*(board.length-1))))
-      : board.length;
-    board.splice(pos,0,{id:PM.me,sum:null});
-    /* 淘汰兩個人。
-       你過了門檻就一定安全，沒過就一定出局——分數說了算，名次只是拿來排版面的。
-       另外兩個名額從 AI 裡面由後往前抓，盡量不要讓某位導師掛零（掛零會被抓人回來補）。 */
-    const out=[];
-    if(!pass) out.push(PM.me);
-    const ai=board.map(x=>x.id).filter(x=>!isMe(x));
-    for(let k=ai.length-1;k>=0&&out.length<2;k--){
-      const id=ai[k], t=teamOf(id);
-      if(t&&S.teams[t].length-out.filter(o=>teamOf(o)===t).length<=1) continue;
-      out.push(id);
-    }
-    for(let k=ai.length-1;k>=0&&out.length<2;k--){ if(!out.includes(ai[k])) out.push(ai[k]) }
+    /* 跟導師模式同一條判定：到門檻一定安全，沒到就走人，除非有導師撈你 */
+    const st=nightSettleMe(others,sum,r);
+    const board=st.board, out=st.out, saved=st.saved;
     S.night.board=board; S.night.out=out; S.night.myOrder=null; S.night.done=true;
+    S.night.saved=saved?saved.coach:null;
     out.forEach(id=>{const t=teamOf(id);S.teams[t]=S.teams[t].filter(x=>x!==id);S.gone.push(id)});
     const myPos=board.findIndex(x=>x.id===PM.me)+1;
     const tbl=`<div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}</span><span class="mono muted">${x.sum===null?r.Q+" 分":"導師總分 "+x.sum}</span></div>`).join("")}</div>`;
     PM.nightPos=myPos;
-    if(!pass){ plog("night",false,`八個人裡排第 ${myPos}，${r.Q} 分沒到 ${bar}。`);
+    if(!pass&&!saved){ plog("night",false,`八個人裡排第 ${myPos}，${r.Q} 分沒到 ${bar}。`);
       return playerOut("決選之夜",`${r.Q} 分，沒有到 ${bar}。最後兩名走人。`,tbl+freeCard(r,"night",null,false)); }
-    plog("night",true,`八個人裡排第 ${myPos}，${r.Q} 分過了 ${bar}。`);
+    if(saved) plog("night",true,`八個人裡排第 ${myPos}，${r.Q} 分沒到 ${bar}，${cl(saved.coach)}把你留下來。`);
+    else plog("night",true,`八個人裡排第 ${myPos}，${r.Q} 分過了 ${bar}。`);
     app.innerHTML=`<p class="eyebrow">決選之夜 · 開牌</p><h2>總名次</h2>${tbl}
     <p>${out.map(id=>fullnm(id)).join("、")} 出局。</p>
-    <div class="card"><div class="rowline"><span>你的名次</span><span class="mono pos">第 ${myPos} 名 / ${board.length}</span></div></div>
+    <div class="card"><div class="rowline"><span>你的名次</span><span class="mono pos">第 ${myPos} 名 / ${board.length}</span></div>
+      <div class="rowline"><span>你的分數</span><span class="mono ${pass?"pos":"neg"}">${r.Q}　門檻 ${bar}</span></div></div>
+    ${saved?`<div class="card"><p class="small" style="margin:0;color:var(--cyan)">${r.Q} 分其實沒到 ${bar}。${cl(saved.coach)}說他想再聽一次，所以你留下來了。</p></div>`:""}
     <button class="btn primary" id="n">進決賽</button>`;
     document.getElementById("n").onclick=finalsIntro;
   };
@@ -1204,14 +1208,19 @@ function nightResultMe(board,out){
   out.forEach(id=>{const t=teamOf(id);S.teams[t]=S.teams[t].filter(x=>x!==id);S.gone.push(id)});
   const myPos=board.findIndex(x=>x.id===PM.me)+1;
   const mineOut=out.includes(PM.me); PM.nightPos=myPos;
-  plog("night",!mineOut,`八個人裡排第 ${myPos}${mineOut?"，最後兩名走人":""}。`);
+  const _r=PM.res.night, _bar=FREEBAR.night, _sv=S.night&&S.night.saved;
+  plog("night",!mineOut,mineOut?`八個人裡排第 ${myPos}，${_r.Q} 分沒到 ${_bar}。`
+    :_sv?`八個人裡排第 ${myPos}，${_r.Q} 分沒到 ${_bar}，${cl(_sv)}把你留下來。`
+        :`八個人裡排第 ${myPos}，${_r.Q} 分過了 ${_bar}。`);
   const html=`<p class="eyebrow">決選之夜 · 開牌</p><h2>總名次</h2>
   <div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}<span class="small muted"> ${teamOf(x.id)?cl(teamOf(x.id)):"已出局"}</span></span><span class="mono muted">總分 ${x.sum}</span></div>`).join("")}</div>
   <p>${out.map(id=>fullnm(id)).join("、")} 出局。</p>
-  <div class="card"><div class="rowline"><span>你的名次</span><span class="mono ${myPos>6?"neg":"pos"}">第 ${myPos} 名 / ${board.length}</span></div></div>
+  <div class="card"><div class="rowline"><span>你的名次</span><span class="mono ${myPos>6?"neg":"pos"}">第 ${myPos} 名 / ${board.length}</span></div>
+    <div class="rowline"><span>你的分數</span><span class="mono ${_r.Q>=_bar?"pos":"neg"}">${_r.Q}　門檻 ${_bar}</span></div></div>
+  ${_sv?`<div class="card"><p class="small" style="margin:0;color:var(--cyan)">${_r.Q} 分其實沒到 ${_bar}。${cl(_sv)}說他想再聽一次，所以你留下來了。</p></div>`:""}
   ${scoreCard(PM.res.night)}`;
-  if(mineOut) return playerOut("決選之夜",`八個人裡你排第 ${myPos}。最後兩名走人。`,
-    `<div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}</span><span class="mono muted">總分 ${x.sum}</span></div>`).join("")}</div>${scoreCard(PM.res.night)}`);
+  if(mineOut) return playerOut("決選之夜",`${_r.Q} 分，沒有到 ${_bar}。八個人裡你排第 ${myPos}，最後兩名走人。`,
+    `<div class="card">${board.map((x,k)=>`<div class="rowline"><span>${k+1}. ${fullnm(x.id)}</span><span class="mono muted">${x.sum===null?_r.Q+" 分":"總分 "+x.sum}</span></div>`).join("")}</div>${scoreCard(PM.res.night)}`);
   app.innerHTML=html+`
   <div class="card">${COACHES.map(x=>`<div class="rowline"><span>${cl(x)}</span><span class="mono muted">${S.teams[x].map(nm).join(" ")||"—"}</span></div>`).join("")}</div>
   <button class="btn primary" id="n">進決賽</button>`;
@@ -1259,7 +1268,7 @@ async function finalsMe(id,list){
     onGo:()=>finalsMe(id,list)});
   if(isMe(id)&&!PM.res.final) return practiceRoom({stage:"final",songKey:"05_會客時間",
     eyebrow:`決賽 ${fi+1} / ${list.length} · 輪到你`,
-    note:"六個人唱同一首《會客時間》。這一關是純比較。",
+    note:`六個人唱同一首《會客時間》。門檻 ${FREEBAR.final} 分——到了就是冠軍。`,
     onGo:()=>finalsMe(id,list)});
   if(isMe(id)) await takeURL("final");
   app.innerHTML=`<p class="eyebrow">決賽 ${fi+1} / ${list.length}</p><h2>${fullnm(id)}</h2>
@@ -1280,14 +1289,18 @@ async function finalsMe(id,list){
       /* 到門檻就是冠軍；沒到就照分數排在中間，結算時再壓到冠軍之下 */
       total=PM.freeChamp?9.9:(5.2+PM.res.final.Q/FREEBAR.final*2.2);
     }
-    else if(isMe(id)) total=playerScore(PM.res.final,heardCount(id),(PUB.find(x=>x.id===id)||{}).order).total;
+    else if(isMe(id)){
+      /* 唱我們的歌：前面幾關還是看導師，但冠軍是硬門檻——沒到 84 就不可能拿第一。
+         決賽的名次照樣用導師和觀眾算，只有「冠軍」這件事被門檻擋住。 */
+      PM.freeChamp=PM.res.final.Q>=FREEBAR.final;
+      total=playerScore(PM.res.final,heardCount(id),(PUB.find(x=>x.id===id)||{}).order).total;
+    }
     else{const r=await cloud("score",{id,stage:"決賽",mine:null,heard:heardCount(id)});
       total=r?r.total:(5+Math.random()*3);}
     S.scores.push({id,stage:"決賽",mine:null,total});
-    if(isMe(id)) plog("final",PM.free?!!PM.freeChamp:true,
-      PM.free?(PM.freeChamp?`${PM.res.final.Q} 分，到了冠軍門檻 ${FREEBAR.final}。`
-                           :`${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。`)
-             :`唱完《會客時間》，等開票。`);
+    if(isMe(id)) plog("final",!!PM.freeChamp,
+      PM.freeChamp?`${PM.res.final.Q} 分，到了冠軍門檻 ${FREEBAR.final}。`
+                  :`${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。`);
     fi++; finals();
   };
 }
@@ -1302,11 +1315,14 @@ async function reportMe(){
   const alive_=alive().includes(PM.me);
   const fin=S.scores.filter(s=>s.stage==="決賽");
   let champ=fin.sort((a,b)=>b.total-a.total)[0];
-  if(PM.free){
+  if(PM.res.final){
     const bestAI=fin.filter(s=>!isMe(s.id)).sort((a,b)=>b.total-a.total)[0];
     const mine=fin.find(s=>isMe(s.id));
     if(bestAI&&mine){
-      if(PM.freeChamp) mine.total=bestAI.total+0.35;        // 贏，但不要贏成一個假數字
+      /* 到門檻就是冠軍：分數壓在最強的 AI 之上一點點，冠軍也要指回自己。
+         （唱我們的歌的總分是導師和觀眾算出來的，有可能本來就低於 AI，
+           所以這裡一定要一起改 champ，不然會出現「第 1 名」卻寫「你撐到最後」。） */
+      if(PM.freeChamp){ mine.total=bestAI.total+0.35; champ=mine; }
       else{ champ=bestAI; mine.total=Math.min(mine.total,bestAI.total-0.05); }
     }
   }
@@ -1317,7 +1333,7 @@ async function reportMe(){
   app.innerHTML=`<p class="eyebrow">結算</p>
   <h1 style="font-size:38px">${won?"你贏了":alive_?"你撐到最後":"你的海選結束了"}</h1>
   <p class="muted">${PM.name}・${PM.home}・${PM.me} 學員${teamOf(PM.me)?"・"+cl(teamOf(PM.me))+"的隊上":""}${PM.free?"・自由模式":""}</p>
-  ${PM.free&&alive_&&!won&&PM.res.final?`<p class="small" style="color:var(--amber)">決賽 ${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。</p>`:""}
+  ${alive_&&!won&&PM.res.final?`<p class="small" style="color:var(--amber)">決賽 ${PM.res.final.Q} 分，離冠軍門檻 ${FREEBAR.final} 差 ${FREEBAR.final-PM.res.final.Q} 分。</p>`:""}
   ${(()=>{const fin=S.scores.filter(s=>s.stage==="決賽").sort((a,b)=>b.total-a.total);
       const k=fin.findIndex(s=>isMe(s.id));
       return placeCard(won,alive_,k+1,fin.length)})()}
@@ -1352,10 +1368,11 @@ async function reportMe(){
     <tr><td><b>平均</b></td><td class="num mono">${avg("pitch")}</td><td class="num mono">${avg("rhythm")}</td>
       <td class="num mono">${avg("complete")}</td><td class="num mono"><b>${avg("Q")}</b></td></tr></tbody></table>
     <p class="small muted" style="margin:12px 0 0">${
-      avg("Q")>=80?"你這一局的客觀分在四位導師眼裡是明顯高標。"
-      :avg("Q")>=65?"客觀分在中上。輸的時候不是輸在唱不好，是輸在別人更好。"
-      :avg("Q")>=50?"客觀分在中下。先把"+(avg("pitch")<avg("rhythm")?"音準":"節奏")+"補起來，其他都是後面的事。"
+      avg("Q")>=75?"你這一局的客觀分在四位導師眼裡是明顯高標。"
+      :avg("Q")>=56?"客觀分在中上。輸的時候不是輸在唱不好，是輸在別人更好。"
+      :avg("Q")>=43?"客觀分在中下。先把"+(avg("pitch")<avg("rhythm")?"音準":"節奏")+"補起來，其他都是後面的事。"
       :"客觀分偏低。下一局多在練歌室待一會兒——那裡可以無限重來。"}</p>
+    <p class="small muted" style="margin:6px 0 0">盲選 / PK / 決選之夜看四位導師怎麼決定；冠軍是硬門檻，決賽要到 ${FREEBAR.final} 分。</p>
   </div>`}
 
   ${adviceCard(done.map(k=>PM.res[k]),PM.free)}
