@@ -246,11 +246,10 @@ function intro(){
     ${sv.pm&&sv.pm.on?`<div class="rowline"><span>已經錄好</span><span class="mono" id="nrec">…</span></div>`:""}
     <button class="btn primary" id="cont" style="margin-top:12px">繼續上次</button>
     <button class="btn" id="exp2">存成檔案（含錄音）</button>
-    <p class="small muted" style="margin:6px 0 0">一次唱完四五首不實際。存成檔案就可以換裝置、或隔幾天再回來接著唱。</p>
   </div>`:""}
   <div class="card">
     <h2 style="font-size:18px;margin-top:0">導師模式</h2>
-    <p class="small muted" style="margin:0 0 10px">你是四位導師之一。轉身、搶人、砍人、選歌、打分數。全程都有人在記錄你怎麼做決定。</p>
+    <p class="small muted" style="margin:0 0 10px">你是四位導師之一。轉身、搶人、砍人、選歌、打分數。</p>
     <div class="rowline"><span>盲選</span><span class="mono muted">16 人 · 轉身不限次數</span></div>
     <div class="rowline"><span>PK 第一夜</span><span class="mono muted">16→8 · 攻擊方選歌</span></div>
     <div class="rowline"><span>決選之夜</span><span class="mono muted">8→6 · 匿名排名</span></div>
@@ -259,14 +258,14 @@ function intro(){
   </div>
   <div class="card">
     <h2 style="font-size:18px;margin-top:0">學員模式 🎤</h2>
-    <p class="small muted" style="margin:0 0 10px">你是台上那十六個人之一。<b>用麥克風唱給四位電腦導師聽</b>，電腦算你的音準、節奏、完整度，直接加減評審分。每一關前面都有練歌室，可以只播伴奏、可以試唱、可以重來——正式比賽只有一次。</p>
-    <p class="small" style="color:var(--amber);margin:0 0 12px">這個模式<b>完全不保底</b>：沒有人轉身就當場淘汰，PK 輸了就走，決選之夜排最後就出局。</p>
+    <p class="small muted" style="margin:0 0 10px">你是台上那十六個人之一，<b>用麥克風唱給四位電腦導師聽</b>。每一關前面都有練歌室，正式比賽只有一次。</p>
+    <p class="small" style="color:var(--amber);margin:0 0 12px">到門檻就過，沒到就走人。門檻 ${FREEBAR.blind} / ${FREEBAR.pk} / ${FREEBAR.night} / ${FREEBAR.final}。</p>
     <button class="btn primary" id="gop">當學員・唱我們的歌</button>
     <button class="btn primary" id="gofr">當學員・自由模式</button>
     <button class="btn" id="gofree">先去練歌室（不比賽）</button>
-    <p class="small muted" style="margin:12px 0 0"><b>自由模式</b>：每一關唱什麼都可以，自己放伴奏或清唱。沒有參考旋律，電腦聽你的音準、律動、長音穩不穩、唱得完不完整，用固定門檻決定你過不過關——盲選 60、PK 70、決選之夜 80、決賽 90。</p>
+    <p class="small muted" style="margin:12px 0 0"><b>自由模式</b>：唱什麼都可以，自己放伴奏或清唱。電腦聽音準、律動、穩、完成度。</p>
   </div>
-  <p class="small muted">轉身不限次數，但一隊超過四個人的時候，那位導師<b>可以</b>砍掉自己一個，交給另外三位挑——沒有人要的話他就出局。超過六個人就<b>一定</b>要放掉一個。決選之夜八個人匿名重唱一首新歌，四位導師各交一份完整排序，總名次最後兩名淘汰。每位導師整場有一張保命符 🎟。</p>
+  <p class="small muted">一隊超過四人可以放掉一個，超過六人一定要放。每位導師整場有一張保命符 🎟。</p>
   ${ONLINE?"":'<p class="small" style="color:var(--red)">離線模式：config.js 沒有設定，NPC 會用隨機值，結算不會有相關係數。</p>'}
   <p class="small muted" style="margin-top:16px">進度會自動存在這個瀏覽器（錄音也是）。
   <a href="#" id="imp" style="color:var(--dim)">從檔案接續</a>
@@ -775,7 +774,7 @@ function teamsDone(){
   <p class="small muted" style="margin:0">共 ${alive().length-PK_TARGET} 場，打到剩 ${PK_TARGET} 人。攻擊方決定三件事：打哪一隊、派誰上場、<b>唱哪一首</b>。</p>
   ${PKSONGS.map(s=>`<div class="rowline"><span>《${sname(s.song)}》</span><span class="mono muted">${s.dim}　${s.note}</span></div>`).join("")}
   </div>
-  <p class="small muted">兩人唱同一首才能比。只剩一人的隊伍不能攻擊也不能被攻擊。每位導師整場有一張保命符 🎟。</p>
+  <p class="small muted">只剩一人的隊伍不能攻擊也不能被攻擊。</p>
   <button class="btn primary" id="g">開始 PK</button>`;
   document.getElementById("g").onclick=pk;
 }
@@ -1003,6 +1002,9 @@ async function duetMe(atk,def,a,d,sg){
 /* ---------- 決選之夜（8 → 6，匿名排名） ---------- */
 function nightIntro(){
   fillEmptyTeams();
+  /* 先標成 night 再進練歌室：唱完會 saveGame(LASTPHASE)，
+     不先標的話存檔會寫成「上次玩到 PK 第一夜」，接續回來的關卡名字是錯的。 */
+  if(PM.on&&alive().includes(PM.me)&&!PM.res.night) saveGame("night");
   if(PM.free&&alive().includes(PM.me)&&!PM.res.night)
     return freeRoom({stage:"night",eyebrow:"決選之夜 · 輪到你",
       note:`八個人各唱一首。台上沒有名字。你唱什麼都可以，門檻 ${FREEBAR.night} 分。`,
@@ -1021,12 +1023,12 @@ function nightIntro(){
   <p class="muted">八個人各唱一首你今晚沒聽過的歌。</p>
   <div class="card">
     <p class="small" style="margin:0 0 10px"><b>台上沒有名字，也沒有隊伍。</b></p>
-    <p class="small muted" style="margin:0">你在第一關是在不知道他們是誰的情況下轉身的。今天你知道了一切，然後標籤又被拿掉。你要靠耳朵認出誰是誰。</p>
+    <p class="small muted" style="margin:0">第一關你什麼都不知道。今天你知道了一切，然後標籤又被拿掉。</p>
   </div>
   ${PM.on
-    ?`<p class="small muted">四位導師各交一份 1–8 的完整排序，四份加總，總名次最後兩名淘汰。你在台上，沒有投票權。</p>
-      <p class="small" style="color:var(--amber)">你排最後兩名就出局。這個模式不保底。</p>`
-    :`<p class="small muted">四位導師各交一份 1–8 的完整排序，四份加總，總名次最後兩名淘汰。你可能會把自己的人排在後面——沒有人會攔你。</p>
+    ?`<p class="small muted">你在台上，沒有投票權。</p>
+      <p class="small" style="color:var(--amber)">你自己看分數：到 ${FREEBAR.night} 分就一定安全，沒到就走人——除非有導師想留你。</p>`
+    :`<p class="small muted">四位導師各交一份 1–8 的排序，加總後最後兩名淘汰。你可能會把自己的人排下去，沒有人會攔你。</p>
       <p class="small" style="color:var(--amber)">保底：如果淘汰會讓某位導師掛零，換總名次次差的出局。</p>`}
   <button class="btn primary" id="g">開始</button>`;
   document.getElementById("g").onclick=night;
@@ -1096,7 +1098,7 @@ async function nightMe(){
   const slots=S.night.slots;
   await takeURL("night");
   app.innerHTML=`<p class="eyebrow">決選之夜</p><h2>八個人，八首歌</h2>
-  <p class="small muted">台上沒有名字。其中一個是你。聽完就交給四位導師排名——這一關你沒有投票權。</p>
+  <p class="small muted">台上沒有名字。其中一個是你。</p>
   <div id="stagelist"></div>
   <button class="btn primary" id="ok">交給四位導師排名</button>`;
   const box=document.getElementById("stagelist");

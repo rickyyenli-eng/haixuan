@@ -577,18 +577,16 @@ function playerSetup(free) {
   PM.free = !!free;
   app.innerHTML = `
   <p class="eyebrow">學員模式${free ? " · 自由模式" : ""}</p><h1>你要上台</h1>
-  <p class="muted">十六個人裡面有一個是你。你會用這台手機（或電腦）的麥克風唱給四位電腦導師聽。</p>
+  <p class="muted">十六個人裡面有一個是你。用麥克風唱給四位電腦導師聽。</p>
   ${free ? `<div class="card" style="border-color:var(--amber)">
-    <p class="small" style="margin:0 0 8px"><b>自由模式：每一關唱什麼都可以。</b>自己拿別的裝置放伴奏，或直接清唱。這個網站不放任何有版權的音樂，所以沒有伴奏也沒有歌詞。</p>
+    <p class="small" style="margin:0 0 8px"><b>每一關唱什麼都可以。</b>自己放伴奏或清唱——網站不放有版權的音樂，所以這裡沒有伴奏也沒有歌詞。</p>
     <div class="rowline"><span class="small">盲選</span><span class="mono muted">${FREEBAR.blind} 分才有導師轉身</span></div>
     <div class="rowline"><span class="small">PK 第一夜</span><span class="mono muted">${FREEBAR.pk} 分</span></div>
     <div class="rowline"><span class="small">決選之夜</span><span class="mono muted">${FREEBAR.night} 分</span></div>
     <div class="rowline"><span class="small">決賽</span><span class="mono muted">${FREEBAR.final} 分才是冠軍</span></div>
-    <p class="small muted" style="margin:8px 0 0">電腦聽四件事：音準、律動、穩、完成度。門檻是拿真人錄音校準出來的——唱得完整、大致在調上大約 60；普通水準 70；很不錯 80；幾乎沒有瑕疵 90。</p>
   </div>` : ""}
   <div class="card">
-    <p class="small" style="margin:0 0 4px">錄音只存在這台裝置的瀏覽器裡，不會上傳、也不會傳給別人。換一台裝置就聽不到了。</p>
-    <p class="small muted" style="margin:8px 0 0">${PM.free ? "自由模式沒有練歌室——你唱你自己的歌，想練多久都在你自己那邊。" : "練歌室裡可以切男聲／女聲導唱、升降 key、放慢旋律、伴奏和人聲導唱切換。"}</p>
+    <p class="small" style="margin:0">錄音只留在這台裝置，不會上傳。換一台裝置就聽不到了。</p>
   </div>
   <div class="card">
     <label class="small">你在台上的名字</label>
@@ -602,8 +600,8 @@ function playerSetup(free) {
     <label class="small">上台前你會說的那一句</label>
     <input id="ps" maxlength="40" placeholder="例：我想唱給一個人聽。" style="width:100%;box-sizing:border-box;background:#12101a;border:1px solid var(--line);color:var(--paper);padding:10px;font-family:var(--sans);font-size:15px;margin:6px 0 0">
   </div>
-  <p class="small muted">這一局有四位電腦導師：老派技術控、情緒派、市場派、鄉土派。沒有玩家導師——你的分數完全由電腦客觀評出來。</p>
-  <p class="small" style="color:var(--amber)">這個模式<b>不保底</b>：沒有人轉身就直接淘汰，PK 輸了就出局，決選之夜排最後就走人。</p>
+  <p class="small muted">四位電腦導師：老派技術控、情緒派、市場派、鄉土派。</p>
+  <p class="small" style="color:var(--amber)">到門檻就過，沒到就走人——偶爾會有導師想留你，但整場只有一次。</p>
   <button class="btn primary" id="go">下一步</button>
   <button class="btn" id="back">回上一頁</button>`;
   document.getElementById("back").onclick = intro;
@@ -907,7 +905,7 @@ function practiceRoom(opt) {
   </div>
   ${lyricBox()}
   <div class="lyrall" id="full"></div>
-  <p class="small muted" style="margin:0 0 14px">點歌詞任何一句就會跳到那裡——想單練副歌或第二段主歌，直接點下去。上面那條也可以拖著找位置。</p>
+  <p class="small muted" style="margin:0 0 14px">點歌詞跳到那一句，上面那條可以拖。</p>
   <div class="card" id="ctl">
     <div class="ctlrow"><span class="lab">導唱聲線</span><span class="chips" id="gbtns"></span></div>
     <div class="ctlrow"><span class="lab">聽什麼</span><span class="chips" id="vbtns"></span></div>
@@ -920,11 +918,11 @@ function practiceRoom(opt) {
     <button class="btn" id="rec">開始錄${FREE ? "" : "（試唱，可以重來）"}</button>
     <button class="btn" id="stop" disabled>停</button>
     <div class="meter" id="mtr"><i></i></div>
-    <p class="small muted" id="mnote" style="margin:0">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
+    <p class="small muted" id="mnote" style="margin:0">都不動就是麥克風沒收到。</p>
   </div>
   <div id="sc"></div>
   ${FREE ? `<div class="card">
-    <p class="small muted" style="margin:0 0 10px">這裡怎麼錄都不算數，錄完會告訴你這個分數大概能不能過關。</p>
+    <p class="small muted" style="margin:0 0 10px">這裡怎麼錄都不算數。</p>
     <button class="btn" id="go">回練歌大廳</button>
   </div>`
   : `<div class="card">
@@ -1253,7 +1251,7 @@ function freeRoom(opt) {
     <p class="mono" id="clk" style="font-size:34px;margin:0 0 2px;color:var(--amber)">0:00</p>
     <p class="small muted" style="margin:0 0 10px">唱滿 1:00 完成度才會滿分・不到 0:30 總分會被打折</p>
     <div class="meter" id="mtr"><i></i></div>
-    <p class="small muted" id="mnote" style="margin:0 0 12px">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
+    <p class="small muted" id="mnote" style="margin:0 0 12px">都不動就是麥克風沒收到。</p>
     <button class="btn primary" id="rec">先試唱一次（不算數）</button>
     <button class="btn" id="stop" disabled>唱完了</button>
     <div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:14px">
@@ -1379,7 +1377,7 @@ function freeVerdict(Q, st) {
 function freeTest() {
   let mr = null, chunks = [], stream = null, t0 = 0, tick = null, meter = null, lastLevel = null;
   app.innerHTML = `<p class="eyebrow">自由模式 · 試分數</p><h2>唱什麼都可以</h2>
-  <p class="muted">自己拿別的裝置放伴奏、或直接清唱都行。網站不放任何有版權的音樂，所以這裡沒有伴奏也沒有歌詞。</p>
+  <p class="muted">自己放伴奏或清唱都行。這裡沒有伴奏也沒有歌詞。</p>
   <div class="card">
     <p class="small" style="margin:0 0 4px">電腦會聽四件事：</p>
     <div class="rowline"><span class="small">音準</span><span class="small muted">你的音有沒有落在半音格上</span></div>
@@ -1391,7 +1389,7 @@ function freeTest() {
   <div class="card">
     <p class="mono" id="clk" style="font-size:34px;margin:0 0 10px;color:var(--amber)">0:00</p>
     <div class="meter" id="mtr"><i></i></div>
-    <p class="small muted" style="margin:0 0 12px">錄音時這條會跟著你的聲音跳。都不動就是麥克風沒收到。</p>
+    <p class="small muted" style="margin:0 0 12px">都不動就是麥克風沒收到。</p>
     <button class="btn primary" id="rec">開始錄</button>
     <button class="btn" id="stop" disabled>唱完了</button>
   </div>
@@ -1457,12 +1455,11 @@ const SONGROLE = {"01_風向":"PK 曲・垂直","03_定影":"PK 曲・控制","0
 function freePractice() {
   app.innerHTML = `<p class="eyebrow">練歌大廳</p><h2>十二首都可以練</h2>
   <p class="muted">這裡不算成績。先把想唱的練熟，再去比賽。</p>
-  <p class="small muted">錄完會給你音準／節奏／完整度，還會告訴你這個分數大概能不能過關。</p>
+
   <div id="s"></div>
   <div class="card">
     <h2 style="font-size:18px;margin-top:0">自由模式 · 試分數 🎤</h2>
-    <p class="small muted" style="margin:0 0 10px">唱什麼都可以——自己放伴奏、或清唱。電腦不需要參考旋律也能給你音準／律動／穩／完成度。
-    這是自由模式的評分引擎，還沒接進比賽，先量給你看準不準。</p>
+    <p class="small muted" style="margin:0 0 10px">唱什麼都可以——自己放伴奏、或清唱。用的是自由模式那套評分。</p>
     <button class="btn" id="ft">去試分數</button>
   </div>
   <button class="btn" id="back">回開場</button>`;
